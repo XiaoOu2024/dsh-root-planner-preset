@@ -32,33 +32,43 @@ web_search  web_fetch
 
 ## 二、安装
 
-三种方式任选，推荐第 1 种。
+四种方式任选，推荐第 1 种。
 
-### 方式 1：命令行（推荐）
+### 方式 1：npm（推荐）
+
+```sh
+dsh plugin --profile web add dsh-root-planner-preset
+```
+
+已发布在 npm：<https://www.npmjs.com/package/dsh-root-planner-preset>。这是**预构建安装**，跳过 pnpm 的构建授权步骤，最省事。
+
+> 也可以钉版本：`dsh plugin --profile web add dsh-root-planner-preset@1.0.0`
+
+### 方式 2：GitHub 源码
 
 ```sh
 dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 ```
 
-装完重启 `dsh web`。
+> 也可以指定分支或 tag：`github:XiaoOu2024/dsh-root-planner-preset#v1.0.0`
 
-> 也可以指定版本或分支：`github:XiaoOu2024/dsh-root-planner-preset#v1.0.0`
-
-### 方式 2：让 DSH 里的 agent 装
+### 方式 3：让 DSH 里的 agent 装
 
 对 agent 说：
 
-> 用 `plugin_manager` 的 `install_bundle`，target 填 `github:XiaoOu2024/dsh-root-planner-preset`
+> 用 `plugin_manager` 的 `install_bundle`，target 填 `dsh-root-planner-preset`（或 `github:XiaoOu2024/dsh-root-planner-preset`）
 
 注意：这个工具调用需要 **Full access** 权限或当次授权。
 
-### 方式 3：先克隆再按路径装
+### 方式 4：先克隆再按路径装
 
 ```sh
 git clone https://github.com/XiaoOu2024/dsh-root-planner-preset
 ```
 
 然后让 agent 用 `install_bundle`，target 填**克隆下来的绝对路径**。
+
+装完重启 `dsh web`。
 
 ### ❌ 不适用：插件市场界面
 

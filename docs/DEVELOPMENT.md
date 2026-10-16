@@ -54,8 +54,29 @@ targets:
 |---|---|---|
 | Absolute path | `C:\path\to\root-planner-preset` | Works from a checkout, a share, or a USB drive. Already-installed bundles must be addressed by package name, not path. |
 | Git repository | `github:you/root-planner-preset` | Also `https://…`, `git+…`, `gitlab:`/`gist:` forms. The manager pre-checks GitHub reachability with `git ls-remote`. |
-| npm registry | `dsh-root-planner-preset` or `…@1.0.0` | **Not published yet**, and `private: true` blocks it. Drop `private`, bump the version, then publish. |
+| npm registry | `dsh-root-planner-preset` (`@1.0.0` to pin) | **Published.** Preferred: a prebuilt install skips pnpm's build-approval step. |
 | Tarball URL | `https://…/dsh-root-planner-preset-1.0.0.tgz` | For a file server or release asset. |
+
+### Publishing to npm
+
+The package is live at <https://www.npmjs.com/package/dsh-root-planner-preset>.
+Two things about this machine and account cost real time to discover; both are
+permanent conditions, not accidents:
+
+- **The configured registry is `registry.npmmirror.com`**, a read-only mirror.
+  Every publish must name the official registry explicitly:
+  `npm publish --registry https://registry.npmjs.org/ --access public`.
+- **The publishing account uses npm's staged publishing.** A `npm publish` can
+  report success and still leave the version off the registry, because it went to
+  the stage instead; `npm stage list` may show nothing while the registry refuses
+  that version with `E409 Cannot publish over previously staged version`. The
+  reliable check is never the command's exit code — it is
+  `https://registry.npmjs.org/<name>/<version>` returning 200. Version `1.0.0`
+  reached the registry only after approval on npmjs.com, not from the CLI.
+
+The `0.0.0-stage` version on the registry is an automatic placeholder from that
+workflow. It is harmless but pointless; deprecate it rather than treat it as a
+release. Never publish a real version below it.
 
 ### What the recipient's environment must provide
 

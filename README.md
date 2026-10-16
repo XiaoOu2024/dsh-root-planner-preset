@@ -41,6 +41,14 @@
 
 ## 快速开始
 
+推荐从 npm 安装（预构建，免构建授权步骤）：
+
+```sh
+dsh plugin --profile web add dsh-root-planner-preset
+```
+
+或直接从 GitHub 源码安装：
+
 ```sh
 dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 ```
