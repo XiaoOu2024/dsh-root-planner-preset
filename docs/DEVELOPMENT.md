@@ -1,6 +1,6 @@
 # root-planner preset bundle — maintainer notes
 
-[中文说明](../README.md) | [安装步骤](../INSTALL.md)
+[English README](../README.md) | [中文说明](../README.zh.md) | [Install](../INSTALL.md)
 
 An agent preset for DSH Web that splits **reading** from **planning and mutating**:
 the root agent keeps its context for analysis, planning, and decisions, delegates
@@ -29,6 +29,8 @@ Paths below are relative to the repository root; this file lives in `docs/`.
 | `verify-depth-override.mjs` | Checks that the profile patch layer still parses and that the `subagent` depth override landed in the composed profile. |
 | `package.json` | Bundle manifest (`dsh.bundle.patch`). |
 | `.gitattributes` | Pins LF; without it a Windows checkout breaks the byte-identity check. |
+| `README.md` / `README.zh.md` | The English and Chinese front pages, cross-linked. npm renders the repository root `README.md`, which is why the English one holds that name. |
+| `INSTALL.md` | Recipient-facing setup steps and troubleshooting (Chinese). |
 
 ```sh
 node build-patch.mjs             # after every persona.txt edit

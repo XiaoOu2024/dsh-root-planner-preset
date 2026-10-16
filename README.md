@@ -1,90 +1,103 @@
 # dsh-root-planner-preset
 
-一个面向 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（DSH）的 agent 预设：**把「读书」和「决策」分开**。
+An agent preset for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) that **separates reading from deciding**.
 
-根 agent 的上下文只装任务分析、规划与决策；文件阅读、信息查询交给子代理，子代理只回摘要。而**创建、修改、删除文件只能由根 agent 执行**——子代理连工具都没有。
+The root agent's context holds task analysis, planning and decisions; file reading and information queries go to subagents that return summaries only. Creating, modifying and deleting files stays with the root agent — subagents do not even have the tools.
 
-> 一句话：让整棵树里只有一个 agent 有手，其余都只有眼睛。
+> One agent in the tree has hands. Every other agent has only eyes.
 
-[安装步骤](INSTALL.md) | [维护者文档](docs/DEVELOPMENT.md)
+[中文说明](README.zh.md) | [Install](INSTALL.md) | [Maintainer notes](docs/DEVELOPMENT.md)
 
-## 它解决什么问题
+## The problem it solves
 
-用 coding agent 干长任务，上下文很快被原始文件内容塞满，于是忘了目标、丢了计划、开始重复劳动。常见对策是「让 agent 多派子代理」，但光靠提示词约束不住——子代理照样会顺手改文件，任务也会被无限往下转派。
+On a long task a coding agent's context fills up with raw file contents, and it forgets the goal, loses the plan, and starts repeating work. The usual answer — "delegate more to subagents" — does not hold on its own: a subagent will still edit files on its way past, and work gets passed further down without limit.
 
-这个预设把两件事做成了结构约束，而不是靠自觉：
+This preset turns both of those into structural constraints rather than good intentions:
 
-| 要求 | 机制 | 强度 |
+| Requirement | Mechanism | Strength |
 |---|---|---|
-| 子代理**不能**创建/修改/删除文件 | 两个委派工具上的 `toolFilter.allow` 白名单，不含 `write`、`edit`、`ops_replace` | **结构性**：工具不存在，调不到 |
-| 子代理**没有** shell 可绕过 | 同一白名单，不含 `ops_bash`、`pwsh` | **结构性** |
-| 任务不会被无限转派 | 运行时深度上限（`subagent.maxDepth`） | **结构性**：超过上限直接抛 `SubagentDepthError` |
-| 根 agent 独揽所有修改 | 人设规则（白名单只作用于子级） | 提示词级 |
-| 根 agent 默认委派阅读 | 人设规则 | 提示词级 |
+| Subagents **cannot** create, modify or delete files | A `toolFilter.allow` list on both delegation tools, without `write`, `edit`, `ops_replace` | **Structural**: an absent tool cannot be called |
+| Subagents **have no shell** to work around it | The same list, without `ops_bash`, `pwsh` | **Structural** |
+| Work cannot be passed down without limit | The runtime delegation depth limit (`subagent.maxDepth`) | **Structural**: past the cap it throws `SubagentDepthError` |
+| The root agent owns every mutation | Persona rules (the mask applies to children only) | Prompt-level |
+| The root agent delegates reading by default | Persona rules | Prompt-level |
 
-白名单是 **allow 而非 deny**：将来某个插件新增的工具，对子代理默认不可见。
+The mask is an **allow** list, not a deny list: a tool added by a future plugin is invisible to subagents until it is added here.
 
-## 工作方式
+## How it works
 
 ```
-根 agent (depth 0)          ← 只有它有 write / edit / shell
-├── 子代理 (depth 1)        ← 只读；可以再派一层
-│   └── 孙代理 (depth 2)    ← 只读；叶子
-└── 子代理 (depth 1)
+root agent (depth 0)        <- the only one with write / edit / shell
+├── subagent (depth 1)      <- read-only; may delegate one more level
+│   └── grandchild (depth 2) <- read-only; a leaf
+└── subagent (depth 1)
 ```
 
-- **根 agent**：先立计划（目标、成功判据、约束、任务清单），把阅读/搜索/定位默认派出去，自己只在「单个已知文件、一小段范围、或核实子代理的某个断言」时才亲自读。
-- **子代理**：只读、只定位、只总结。发现**需要改文件**时不动手，而是回报精确的改动方案——目标路径、位置（file:line）、当前内容、建议替换、理由。
-- **根 agent 收到方案后决策**，然后亲自落盘。
+- **Root agent**: plans first (goal, success criteria, constraints, ordered task list), delegates reading, searching and locating by default, and reads directly only for one known file, a short targeted range, or to check a claim a subagent made.
+- **Subagent**: reads, locates and summarizes. On finding that a file **needs changing** it does not act; it reports the exact change — target path, location (`file:line`), current content, proposed replacement, and why.
+- **The root agent decides** on that proposal and then makes the change itself.
 
-子代理怎么知道自己是子代理？DSH 会在每个子代理的提示词里强制插入一句 `You are a delegated subagent: …`，运行时注入、无法移除，而预设人设**没有** `{{role}}` 这类变量可用。所以人设里写的是一条**判定指令**：读自己的提示词里有没有那句话。这让人设只需要一份，父与子读到的是同一份文本，因此不会出现「父以为子被这么约束、子其实没读到」的漂移。
+How does a subagent know it is a subagent? DSH force-inserts the sentence `You are a delegated subagent: …` into every subagent's prompt, injected by the runtime and impossible to remove — while a preset persona has **no** `{{role}}`-style variable available. So the persona states a **test** instead: read your own prompt for that sentence. One persona then serves both roles, and parent and child read the same text, which is what prevents the drift where a parent believes a child is constrained and the child never saw it.
 
-## 快速开始
+## Quick start
 
-推荐从 npm 安装（预构建，免构建授权步骤）：
+Install from npm (prebuilt, no build-approval step):
 
 ```sh
 dsh plugin --profile web add dsh-root-planner-preset
 ```
 
-或直接从 GitHub 源码安装：
+Or straight from GitHub source:
 
 ```sh
 dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 ```
 
-装完**必须**再做一步：**设置 → 子智能体 → 深度上限 = `2`**。（这是 Host 的 `subagent` 设置节，**全局生效、不属于** bundle；设成 `0` 会禁掉全部委派，设计就废了。）
+Then **one required step**: set **Settings → Subagents → depth limit** to **`2`**. (This is the Host's `subagent` settings section — global, and **not** part of the bundle. Setting it to `0` disables all delegation and breaks the design.)
 
-然后**开新会话**，在预设选择器里选 **Root Planner**。完整步骤与故障排查见 [INSTALL.md](INSTALL.md)。
+Then **start a new session** and pick **Root Planner** in the preset selector. Full steps and troubleshooting are in [INSTALL.md](INSTALL.md).
 
-## 适合 / 不适合
+## When it fits, and when it does not
 
-**适合**：需要跨很多文件调研的长任务、逆向分析、代码审查，以及任何「读得多、改得少」或「改动必须被仔细决策」的工作。
+**Fits**: long research-heavy tasks across many files, reverse engineering, code review — anything read-heavy, or where a change must be carefully decided.
 
-**不适合**：
+**Does not fit**:
 
-- 只想快速改一个文件——多一层委派是纯粹的开销；
-- 需要子代理**并行写代码**——这是本预设**故意**禁止的，请改用 `standard` 预设；
-- 环境缺少 DSH 的工具基础（见 [INSTALL.md](INSTALL.md) 的前置条件）。
+- changing one file quickly — the extra delegation layer is pure overhead;
+- wanting subagents to **write code in parallel** — this preset forbids that on purpose; use the `standard` preset instead;
+- an environment missing the DSH tooling listed in [INSTALL.md](INSTALL.md).
 
-## 仓库内容
+## Repository contents
 
-| 文件 | 说明 |
+| File | Purpose |
 |---|---|
-| `cordis.patch.yml` | 预设声明（**由脚本生成，不要手改**） |
-| `persona.txt` | 人设正文，**要改就改这个** |
-| `build-patch.mjs` | 从 `persona.txt` 生成 `cordis.patch.yml` |
-| `verify-patch.mjs` | 校验补丁结构、工具白名单，并断言人设逐字节一致 |
-| `verify-depth-override.mjs` | 校验深度覆盖是否落到合成配置 |
-| `lib-yaml.mjs` | 从本地 DSH 安装里解析 YAML，因此本包**零依赖** |
-| `docs/DEVELOPMENT.md` | 维护者文档：设计取舍、机制细节、已验证/未验证边界 |
+| `cordis.patch.yml` | The preset declaration (**generated — do not hand-edit**) |
+| `persona.txt` | The persona prose; **edit this one** |
+| `build-patch.mjs` | Generates `cordis.patch.yml` from `persona.txt` |
+| `verify-patch.mjs` | Checks patch structure and the tool mask, and asserts byte identity of the persona |
+| `verify-depth-override.mjs` | Checks that the depth override reached the composed profile |
+| `lib-yaml.mjs` | Resolves a YAML parser from the local DSH install, so this package has **no dependencies** |
+| `docs/DEVELOPMENT.md` | Maintainer notes: design trade-offs, mechanics, verified/unverified boundaries |
 
-## 已验证 / 未验证
+## Verified / not verified
 
-**已验证**：补丁可被 loader 解析；解析出的人设与 `persona.txt` **逐字节相同**；两个委派工具的白名单排除了所有写入入口、且只包含本机实际注册的工具名；干净检出后校验通过（`.gitattributes` 已钉死 LF，否则 Windows 克隆会破坏逐字节校验）；深度覆盖已落到合成配置。
+**Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; both delegation masks exclude every mutation entry point and name only tools this profile actually registers; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check); the depth override reached the composed profile.
 
-**未验证**：**尚未在 `root-planner` 预设下真正派出过一个子代理。** 白名单里的工具名是按作者环境的实际工具清单交叉核对出来的，不是运行时实测。若你的环境缺少其中某个全局工具名，子代理创建会失败并报 `tools.restrict() names unknown global tool …`。详见 [INSTALL.md](INSTALL.md) 的故障排查。
+**Not verified**: **no subagent has actually been spawned under the `root-planner` preset yet.** The tool names in the mask were cross-checked against the author's environment, not exercised at runtime. If your environment lacks one of those global tool names, child creation fails with `tools.restrict() names unknown global tool …`. See the troubleshooting section of [INSTALL.md](INSTALL.md).
 
-## 许可
+## Contributing
+
+Issues and pull requests are welcome — this repository is meant to be maintained by more than its author. The license is [MIT](LICENSE), so forking, modifying and redistributing are all permitted.
+
+Useful contributions, roughly in order of value:
+
+- **Report what broke**, with the error text and your DSH version. The unverified area above is exactly where real reports matter most.
+- **Report a mask mismatch** on your platform: which global tools your profile registers and which name the mask got wrong.
+- **Improve the persona** (`persona.txt`) — but run `node build-patch.mjs && node verify-patch.mjs` and include the result, since `cordis.patch.yml` is generated and a hand-edited one will be rejected.
+- **Translate or fix the docs** — [README.zh.md](README.zh.md) and [INSTALL.md](INSTALL.md).
+
+Please keep a change to one concern per pull request, and say which preset it was tested with.
+
+## License
 
 [MIT](LICENSE)

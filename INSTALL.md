@@ -2,7 +2,7 @@
 
 面向**接收方**。本包是一个 DSH agent 预设（bundle），不改动 DSH 本体。
 
-[返回中文说明](README.md) | [维护者文档](docs/DEVELOPMENT.md)
+[English README](README.md) | [中文说明](README.zh.md) | [维护者文档](docs/DEVELOPMENT.md)
 
 ## 一、前置条件
 
