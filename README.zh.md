@@ -65,6 +65,8 @@ dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 
 然后**开新会话**，在预设选择器里选 **Root Planner**。完整步骤与故障排查见 [INSTALL.md](INSTALL.md)。
 
+> ⚠️ **最容易踩的坑：根会话必须真的选中 Root Planner。** 有人实测时根会话仍是 `standard`，于是根不受本预设约束、而它派出的子代理却是 `root-planner`——权限与规则整棵树错位，最后据此得出一批关于本预设的错误结论。**确认方法**：会话文件 `~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd` 第一行的 `"agentPreset"` 字段应为 `root-planner`；或跑 `node tools/inspect-sessions.mjs <会话目录>` 一次性列出根与全部子会话的预设、深度与工具清单。
+
 ## 适合 / 不适合
 
 **适合**：需要跨很多文件调研的长任务、逆向分析、代码审查，以及任何「读得多、改得少」或「改动必须被仔细决策」的工作。

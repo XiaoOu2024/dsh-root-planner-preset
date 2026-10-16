@@ -76,6 +76,8 @@ Then **one required step**: set **Settings → Subagents → depth limit** to **
 
 Then **start a new session** and pick **Root Planner** in the preset selector. Full steps and troubleshooting are in [INSTALL.md](INSTALL.md).
 
+> ⚠️ **The easiest mistake to make: the root session must actually be composed with Root Planner.** In one real trial the root session was still `standard`, so the root was bound by none of this preset while the subagents it spawned *were* `root-planner` — every rule and permission in the tree was mismatched, and a batch of confident conclusions about the preset followed from it. **To check:** the first line of `~/.dsh/sessions/<cwd>/<session-id>/session.v4.jsonl.zstd` carries `"agentPreset"`, which must read `root-planner`; or run `node tools/inspect-sessions.mjs <session-dir>` to print the preset, depth and tool inventory of the root and every child at once.
+
 ## When it fits, and when it does not
 
 **Fits**: long research-heavy tasks across many files, reverse engineering, code review — anything read-heavy, or where a change must be carefully decided.

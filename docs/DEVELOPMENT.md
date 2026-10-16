@@ -26,6 +26,8 @@ Paths below are relative to the repository root; this file lives in `docs/`.
 | `cordis.patch.yml` | Generated. Do not hand-edit — regenerate instead. |
 | `lib-yaml.mjs` | Resolves a YAML parser from the local DSH installation, so the scripts need no dependencies. |
 | `verify-patch.mjs` | Parses the generated patch and checks persona integrity, role wiring, and the child mask. |
+| `child-tools.mjs` | The child mask, defined once so the generator and the verifier cannot disagree. |
+| `tools/inspect-sessions.mjs` | Forensics for a real run: prints each session's `agentPreset`, delegation depth and tool inventory from the `.jsonl.zstd` logs. Use it before trusting any claim about what a run did — an apparent bundle defect turned out twice to be the *root* session composed with a different preset. |
 | `verify-depth-override.mjs` | Checks that the profile patch layer still parses and that the `subagent` depth override landed in the composed profile. |
 | `package.json` | Bundle manifest (`dsh.bundle.patch`). |
 | `.gitattributes` | Pins LF; without it a Windows checkout breaks the byte-identity check. |
