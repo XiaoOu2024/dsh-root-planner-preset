@@ -10,6 +10,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHILD_TOOLS } from './child-tools.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -44,32 +45,10 @@ function allowList(names, keyDepth) {
 }
 
 /**
- * The child mask: the only global tools a subagent may call. Everything absent
- * is invisible to the child, including every mutation entry point.
+ * The child mask lives in `child-tools.mjs` so this generator and
+ * `verify-patch.mjs` cannot disagree about it. See that file for why `subagent`
+ * cannot appear in the list.
  */
-const CHILD_TOOLS = [
-  'read',
-  'glob',
-  'grep',
-  'ops_inspect_local_file',
-  'ops_glob',
-  'ops_grep',
-  'web_search',
-  'web_fetch',
-  'read_image',
-  'skill',
-  'todo_write',
-  'ask_user_question',
-  'get_goal',
-  'create_goal',
-  'update_goal',
-  'list_agents',
-  'send_message',
-  'interrupt_agent',
-  'subagent',
-  'subagent_fork',
-];
-
 const persona = readPersona();
 
 /** The delegation group is shared by both shapes of child, so the mask is declared once. */

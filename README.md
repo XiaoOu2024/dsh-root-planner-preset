@@ -18,7 +18,7 @@ This preset turns both of those into structural constraints rather than good int
 |---|---|---|
 | Subagents **cannot** create, modify or delete files | A `toolFilter.allow` list on both delegation tools, without `write`, `edit`, `ops_replace` | **Structural**: an absent tool cannot be called |
 | Subagents **have no shell** to work around it | The same list, without `ops_bash`, `pwsh` | **Structural** |
-| Work cannot be passed down without limit | The runtime delegation depth limit (`subagent.maxDepth`) | **Structural**: past the cap it throws `SubagentDepthError` |
+| Subagents cannot delegate further | The same list cannot name the spawn tool, *and* the runtime depth cap | **Structural**, twice over — see below |
 | The root agent owns every mutation | Persona rules (the mask applies to children only) | Prompt-level |
 | The root agent delegates reading by default | Persona rules | Prompt-level |
 
@@ -27,11 +27,17 @@ The mask is an **allow** list, not a deny list: a tool added by a future plugin 
 ## How it works
 
 ```
-root agent (depth 0)        <- the only one with write / edit / shell
-├── subagent (depth 1)      <- read-only; may delegate one more level
-│   └── grandchild (depth 2) <- read-only; a leaf
-└── subagent (depth 1)
+root agent    <- the only one with write / edit / shell
+└── subagent  <- read-only, and cannot delegate further
 ```
+
+The tree is two levels, enforced twice over. The runtime depth cap does it, and so
+does the mask: `subagent` is mounted inside each composed Agent's own scope rather
+than globally, while a `toolFilter` accepts global tool names only — so a child
+cannot even name it. An earlier version of this bundle did list `subagent` in the
+mask, and **every subagent creation failed** with
+`tools.restrict() names unknown global tool "subagent"`. Raising the depth setting
+therefore does not re-open delegation; there is no tool left to call.
 
 - **Root agent**: plans first (goal, success criteria, constraints, ordered task list), delegates reading, searching and locating by default, and reads directly only for one known file, a short targeted range, or to check a claim a subagent made.
 - **Subagent**: reads, locates and summarizes. On finding that a file **needs changing** it does not act; it reports the exact change — target path, location (`file:line`), current content, proposed replacement, and why.
@@ -81,9 +87,11 @@ Then **start a new session** and pick **Root Planner** in the preset selector. F
 
 ## Verified / not verified
 
-**Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; both delegation masks exclude every mutation entry point and name only tools this profile actually registers; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check); the depth override reached the composed profile.
+**Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; both delegation masks exclude every mutation entry point and name only tools the runtime reports as global; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check); the depth override reached the composed profile.
 
-**Not verified**: **no subagent has actually been spawned under the `root-planner` preset yet.** The tool names in the mask were cross-checked against the author's environment, not exercised at runtime. If your environment lacks one of those global tool names, child creation fails with `tools.restrict() names unknown global tool …`. See the troubleshooting section of [INSTALL.md](INSTALL.md).
+**Fixed after a real failure**: a subagent spawn on a live `root-planner` session failed with `tools.restrict() names unknown global tool "subagent"`. The cause was a design error in this bundle, not a misconfiguration — `subagent` is registered inside each composed Agent's own scope, and a `toolFilter` takes global names only. The mask no longer names it, `verify-patch.mjs` now asserts its absence by intent, and the mask is defined once in `child-tools.mjs` so the generator and the verifier cannot drift apart.
+
+**Still not verified**: no subagent has been spawned successfully under this preset yet — the failure above is the only end-to-end evidence there is. The global-tool inventory in `verify-patch.mjs` was transcribed from that runtime error; if your profile registers a different set, the mask is what has to adapt.
 
 ## Contributing
 

@@ -107,7 +107,7 @@ git clone https://github.com/XiaoOu2024/dsh-root-planner-preset
 |---|---|---|
 | 预设列表里**没有 Root Planner** | bundle 没装上，或预设行激活失败（会带诊断留在名册上） | 看 DSH 的插件/加载诊断；多半是第 1 条前置不满足——本包的补丁引用了随包预设里不存在的工具行 |
 | DSH **启动失败**（进程直接退出） | DSH 启动是全有全无，一个插件加载失败整个进程就退出 | 用插件市场的「**调整插件**」恢复界面：DSH 点名的插件会标红并默认取消勾选，勾好再启动。找不到该界面时，手工编辑 profile 的 `cordis.patch.yml` 把对应行设为 `disabled: true` |
-| 子代理创建失败，报 **`tools.restrict() names unknown global tool …`** | 白名单里有你的环境**没注册**的工具名 | 按报错里点出的名字，从 `cordis.patch.yml` 两个 `toolFilter.allow` 里删掉该行，重装或重开会话 |
+| 子代理创建失败，报 **`tools.restrict() names unknown global tool …`** | 白名单里有**不是全局工具**的名字。注意有两种情况：①你的环境根本没注册该工具；②它是**agent 作用域**工具（如 `subagent`，它注册在每个被组合 Agent 自身的作用域里），而 `toolFilter` **只接受全局工具名** | 报错里会列出该环境全部的全局工具名，照着它删掉白名单里那几个不存在的名字。白名单在 `cordis.patch.yml` 的两个 `toolFilter.allow` 处（或在 `child-tools.mjs` 里改后重跑生成器），改完必须重开会话 |
 | 委派立刻返回**深度错误** | `maxDepth` 没设或设得太小 | 见第三节，设为 `2` |
 | 子代理**什么都不能读** | 白名单过窄（比如你删过头了） | 至少保留 `read`、`glob`、`grep`、`ops_inspect_local_file`、`ops_glob`、`ops_grep` |
 | 子代理**还是能改文件** | 白名单被改坏了 | 确认 `cordis.patch.yml` 里两处 `toolFilter.allow` 都**不含** `write`、`edit`、`ops_replace`、`ops_bash`、`pwsh`；改完必须重开会话 |

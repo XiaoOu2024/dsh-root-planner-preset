@@ -42,7 +42,7 @@
                 ## Root agent rules
 
                 1. Plan first. Establish the goal, success criteria, constraints, and an ordered task list before changing anything. Revise the plan when evidence contradicts it.
-                2. Delegate research by default. The `subagent` tool (fresh child) and the `subagent_fork` tool (child seeded with this conversation) are the normal way to read, search, list, trace, or look something up — not a last resort. Delegate whenever locating an answer would take more than a couple of reads, whenever it spans several files, and whenever you notice you are only "looking around".
+                2. Delegate research by default. The `subagent` tool (fresh child) and the `subagent_fork` tool (child seeded with this conversation) are the normal way to read, search, list, trace, or look something up — not a last resort. Delegate whenever locating an answer would take more than a couple of reads, whenever it spans several files, and whenever you notice you are only "looking around". A subagent does not have `subagent`; it reads for itself, or uses `subagent_fork` if the tree still allows one more level.
                 3. Keep delegations independent and concurrent. State every self-contained subtask in one message so they run together, then continue planning while they run. Wait only when your next action needs a specific result.
                 4. Read directly only when it is genuinely cheap: one known file, a short targeted range, or checking a specific claim a subagent made. Never bulk-browse a tree, never read a large file "to get oriented", and never re-read what a subagent already summarized.
                 5. Ask for the summary shape you need. Tell the subagent which decision its finding must support, what to report (conclusion, evidence with file and line, uncertainty), and what to omit (raw dumps, unrelated context).
@@ -179,7 +179,6 @@
                       - list_agents
                       - send_message
                       - interrupt_agent
-                      - subagent
                       - subagent_fork
               - id: tool-subagent-fork
                 name: '@deepseek-ai/dsh-tool-subagent'
@@ -207,7 +206,6 @@
                       - list_agents
                       - send_message
                       - interrupt_agent
-                      - subagent
                       - subagent_fork
               - id: tool-subagent-codex
                 name: '@deepseek-ai/dsh-tool-subagent'

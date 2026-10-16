@@ -2,13 +2,15 @@
 //  1. every patch file parses as YAML,
 //  2. the preset row and its delegation rows exist,
 //  3. the parsed persona is byte-identical to persona.txt (no YAML mangling),
-//  4. the child tool mask contains only names that exist in this profile.
+//  4. the child tool mask names only global tools, excludes every mutation entry
+//     point, and excludes agent-scoped names that tools.restrict() would reject.
 //
 // Usage: node verify-patch.mjs
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { CHILD_TOOLS, MUTATION_TOOLS, SCOPE_LOCAL_TOOLS } from './child-tools.mjs';
 import { loadYaml, loaderSchema as makeLoaderSchema } from './lib-yaml.mjs';
 
 const yaml = loadYaml();
@@ -69,55 +71,80 @@ const childTools = [
   return { id, toolName, allow: row?.config?.toolFilter?.allow };
 });
 
-// The mask must deny every mutation entry point this profile registers.
-const mutations = ['write', 'edit', 'ops_replace', 'ops_bash', 'pwsh', 'bash', 'ops_run_background'];
+// The mask must deny every mutation entry point, and it can only name global tools.
 for (const { id, allow } of childTools) {
   check(Array.isArray(allow) && allow.length > 0, `${id} declares a non-empty allow list`);
-  for (const denied of mutations) {
+  for (const denied of MUTATION_TOOLS) {
     check(!allow?.includes(denied), `${id} mask excludes ${denied}`);
   }
   check(allow?.includes('read'), `${id} mask keeps read`);
-  check(allow?.includes('subagent'), `${id} mask keeps subagent (read-only recursion stays possible)`);
+  for (const scoped of SCOPE_LOCAL_TOOLS) {
+    check(
+      !allow?.includes(scoped),
+      `${id} mask excludes the agent-scoped tool "${scoped}" (tools.restrict() would refuse it)`,
+    );
+  }
 }
 
-// Every masked name must be a tool this profile actually registers, because
-// tools.restrict() rejects unknown global names when a child is created.
-const liveTools = new Set([
-  'read',
+/**
+ * The global tool inventory of the author's profile, captured from a runtime
+ * error rather than hand-kept: `tools.restrict()` prints every known global tool
+ * when it refuses a name. Replace this list with the equivalent line from your
+ * own environment — it is what makes the check below meaningful.
+ */
+const OBSERVED_GLOBAL_TOOLS = new Set([
+  'ask_user_question',
+  'create_goal',
+  'edit',
+  'exit_plan_mode',
+  'get_goal',
   'glob',
   'grep',
-  'ops_inspect_local_file',
+  'interrupt_agent',
+  'job_kill',
+  'job_list',
+  'job_output',
+  'list_agents',
   'ops_glob',
   'ops_grep',
+  'ops_inspect_local_file',
   'ops_replace',
-  'web_search',
-  'web_fetch',
-  'read_image',
-  'skill',
-  'todo_write',
-  'ask_user_question',
-  'get_goal',
-  'create_goal',
-  'update_goal',
-  'list_agents',
-  'send_message',
-  'interrupt_agent',
-  'subagent',
-  'subagent_fork',
   'present',
-  'write',
-  'edit',
   'pwsh',
-  'ops_bash',
-  'job_output',
-  'job_list',
-  'job_kill',
+  'read',
+  'read_image',
+  'send_message',
+  'skill',
+  'subagent_fork',
+  'todo_write',
+  'update_goal',
+  'web_fetch',
+  'web_search',
   'workflow',
-  'exit_plan_mode',
+  'write',
 ]);
+
+/**
+ * Tools that are agent-scoped rather than global, so the mask can never name
+ * them. `subagent` is the one this bundle ran into: with
+ * `modelSelectionSettings: true` it is mounted inside each composed Agent's own
+ * scope, and `tools.restrict()` accepts global names only.
+ */
 for (const { id, allow } of childTools) {
-  const unknown = (allow ?? []).filter((name) => !liveTools.has(name));
-  check(unknown.length === 0, `${id} mask names only live tools${unknown.length ? ` (unknown: ${unknown.join(', ')})` : ''}`);
+  const unknown = (allow ?? []).filter((name) => !OBSERVED_GLOBAL_TOOLS.has(name));
+  check(
+    unknown.length === 0,
+    `${id} mask names only tools the runtime reports as global` +
+      (unknown.length ? ` (not global: ${unknown.join(', ')})` : ''),
+  );
+  const missing = CHILD_TOOLS.filter((name) => !(allow ?? []).includes(name));
+  const extra = (allow ?? []).filter((name) => !CHILD_TOOLS.includes(name));
+  check(
+    missing.length === 0 && extra.length === 0,
+    `${id} mask matches child-tools.mjs (${CHILD_TOOLS.length} entries)` +
+      (missing.length ? ` — missing: ${missing.join(', ')}` : '') +
+      (extra.length ? ` — unexpected: ${extra.join(', ')}` : ''),
+  );
 }
 
 process.stdout.write(failures.length === 0 ? '\nALL CHECKS PASSED\n' : `\n${failures.length} CHECK(S) FAILED\n`);
