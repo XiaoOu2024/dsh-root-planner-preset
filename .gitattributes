@@ -1,0 +1,10 @@
+# This bundle is verified by BYTE identity: verify-patch.mjs asserts that the
+# persona parsed out of cordis.patch.yml equals persona.txt exactly. Git's
+# autocrlf would rewrite both files on checkout and silently break that check on
+# every Windows clone, so line endings are pinned to LF for the whole repository.
+* text=auto eol=lf
+
+# Binary if anyone ever adds artwork.
+*.png binary
+*.jpg binary
+*.webp binary

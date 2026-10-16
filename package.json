@@ -1,0 +1,21 @@
+{
+  "name": "dsh-root-planner-preset",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH agent preset: a context-conserving root agent that delegates reading to strictly read-only subagents and owns every file mutation.",
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "agent-preset",
+    "cordis",
+    "subagent",
+    "delegation"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

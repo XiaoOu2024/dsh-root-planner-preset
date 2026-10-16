@@ -1,0 +1,6 @@
+# The bundle ships no dependencies and no build step, so nothing here is generated.
+# These entries only guard against artifacts a recipient's tooling might leave behind.
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
