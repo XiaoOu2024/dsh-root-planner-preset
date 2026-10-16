@@ -58,7 +58,7 @@ async function decompressAll(buf) {
   return text;
 }
 
-/** Read one session directory into {header, events}. */
+/** Read one session directory into {header, events, text}. */
 async function readSession(dir) {
   const text = await decompressAll(readFileSync(join(dir, 'session.v4.jsonl.zstd')));
   const events = text
@@ -71,8 +71,16 @@ async function readSession(dir) {
         return [];
       }
     });
-  return { header: events[0], events };
+  return { header: events[0], events, text };
 }
+
+/**
+ * A phrase only this preset's persona contains, so finding it in a session proves
+ * that session was composed with root-planner. Chosen against the alternative of
+ * matching "You are a delegated subagent", which DSH injects into EVERY subagent's
+ * runtime context and therefore proves nothing.
+ */
+const PERSONA_MARKER = 'the same rules govern every node';
 
 const argv = process.argv.slice(2);
 const quiet = argv.includes('--quiet');
@@ -139,11 +147,48 @@ const check = (ok, label) => {
 
 if (!quiet) process.stdout.write(`root session: ${root.header?.id}\n`);
 
+/**
+ * Which preset a session is ACTUALLY running.
+ *
+ * The session header's `agentPreset` is written when the session is created, with
+ * the default preset, and the client then switches preset through
+ * `agentPresets.select()` — which appends an `agent-preset/selected` event and
+ * recomposes the agent, but never rewrites the header. Judging a run by the header
+ * reports "standard" for a session that is genuinely running something else, and
+ * this tool made exactly that mistake twice before the prompt text settled it.
+ *
+ * Identity is therefore taken from the strongest available evidence, in order:
+ *   1. this preset's persona prose appearing in the session's own content — only a
+ *      session composed with root-planner can contain it;
+ *   2. the recorded `agent-preset/selected` event;
+ *   3. the header, which is the creation default and the weakest of the three.
+ * @param session - one read session.
+ * @returns the resolved preset id and what it was resolved from.
+ */
+function resolvePreset(session) {
+  if ((session.text ?? '').includes(PERSONA_MARKER)) {
+    return { preset: 'root-planner', evidence: 'persona text in the session' };
+  }
+  for (const event of session.events) {
+    if (event.type === 'agent-preset/selected' && typeof event.data?.agentPreset === 'string') {
+      return { preset: event.data.agentPreset, evidence: 'agent-preset/selected event' };
+    }
+  }
+  return { preset: session.header?.agentPreset, evidence: 'session header (creation default)' };
+}
+
+const rootPreset = resolvePreset(root);
 check(
-  root.header?.agentPreset === 'root-planner',
-  `root session is composed with root-planner (found "${root.header?.agentPreset ?? '?'}") — if this fails, the run proves nothing about the preset`,
+  rootPreset.preset === 'root-planner',
+  `root session runs root-planner (found "${rootPreset.preset}" via ${rootPreset.evidence})`,
 );
 check(root.header?.delegationDepth === 0, `root is at depth 0 (found ${root.header?.delegationDepth})`);
+if (!quiet && root.header?.agentPreset !== rootPreset.preset) {
+  process.stdout.write(
+    `note: the header says "${root.header?.agentPreset}" while the session runs "${rootPreset.preset}" ` +
+      `(${rootPreset.evidence}) — the header is the creation default, not the running preset\n`,
+  );
+}
 
 const children = sessions.filter((session) => session.header?.parentSession === root.header?.id);
 const byId = new Map(sessions.map((session) => [session.header?.id, session]));
@@ -160,8 +205,9 @@ const depthOf = (session) => {
 if (!quiet) {
   process.stdout.write(`\n${sessions.length} session(s) total:\n`);
   for (const session of sessions) {
+    const preset = resolvePreset(session);
     process.stdout.write(
-      `  ${String(session.header?.id).slice(0, 20)}  preset=${String(session.header?.agentPreset).padEnd(14)} ` +
+      `  ${String(session.header?.id).slice(0, 20)}  preset=${String(preset.preset).padEnd(14)} ` +
         `depth=${depthOf(session)}  parent=${String(session.header?.parentSession ?? '(root)').slice(0, 20)}\n`,
     );
   }
@@ -173,9 +219,10 @@ check(descendants.length > 0, 'the root actually delegated (at least one child s
 
 for (const session of descendants) {
   const depth = depthOf(session);
+  const preset = resolvePreset(session);
   check(
-    session.header?.agentPreset === 'root-planner',
-    `child ${String(session.header?.id).slice(0, 8)} at depth ${depth} inherits root-planner (found "${session.header?.agentPreset ?? '?'}")`,
+    preset.preset === 'root-planner',
+    `child ${String(session.header?.id).slice(0, 8)} at depth ${depth} runs root-planner (found "${preset.preset}" via ${preset.evidence})`,
   );
 }
 
