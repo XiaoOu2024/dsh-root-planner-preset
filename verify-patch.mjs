@@ -62,6 +62,30 @@ check(
   'persona forbids long-running processes for subagents',
 );
 
+/**
+ * Rule count, asserted on purpose.
+ *
+ * Byte-identity above only proves the patch matches `persona.txt` in the working
+ * tree. It says nothing about what was PUBLISHED: 1.1.6 shipped a package.json bump
+ * while the two collaboration rules added in the same session stayed in the working
+ * tree, so npm carried a 13-rule persona while the repository had 14. The byte check
+ * could not see that, because both files agreed with each other.
+ *
+ * Update this number in the same commit as the rule it counts, so the release is the
+ * act that carries it.
+ */
+const ROOT_RULE_COUNT = 14;
+const rootSection = (personaRow?.config?.prefix ?? '').split('## Root agent rules')[1]?.split('## Subagent rules')[0] ?? '';
+const rootRules = [...rootSection.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
+check(
+  rootRules.length === ROOT_RULE_COUNT,
+  `persona carries ${ROOT_RULE_COUNT} root rules (found ${rootRules.length})`,
+);
+check(
+  rootRules.every((value, index) => value === index + 1),
+  `root rule numbering is 1..${rootRules.length} with no gaps or repeats (found ${rootRules.join(',')})`,
+);
+
 const delegation = plugins.find((row) => row.id === 'delegation');
 check(delegation?.group === true, 'delegation is a group row');
 const delegationRows = delegation?.config ?? [];

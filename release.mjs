@@ -271,13 +271,33 @@ if (dryRun || skipInstall) {
 // ── CI ───────────────────────────────────────────────────────────────────────
 if (!dryRun && !skipGh) {
   step('Wait for CI on the pushed commit');
+  const repo = 'XiaoOu2024/dsh-root-planner-preset';
   const sha = git('rev-parse', 'HEAD');
-  const waited = run(
-    GH,
-    ['run', 'watch', sha, '--repo', 'XiaoOu2024/dsh-root-planner-preset', '--exit-status'],
-    { allowFailure: true },
-  );
-  process.stdout.write(`  ${waited.trim().split('\n').slice(-2).join('\n  ') || '(no output)'}\n`);
+  // `gh run watch <sha>` is wrong: the bare argument is a run ID, so a commit hash
+  // returns HTTP 404. Select the run by commit, then watch it by ID; if no run has
+  // registered yet, say so rather than reporting a failure that never happened.
+  let runId;
+  for (let attempt = 1; attempt <= 12 && runId === undefined; attempt += 1) {
+    const listed = run(
+      GH,
+      ['run', 'list', '--repo', repo, '--commit', sha, '--limit', '1', '--json', 'databaseId'],
+      { allowFailure: true },
+    );
+    try {
+      const [first] = JSON.parse(listed.trim() || '[]');
+      if (first?.databaseId !== undefined) runId = String(first.databaseId);
+    } catch {
+      /* the run has not registered yet */
+    }
+    if (runId === undefined) await new Promise((resolve) => setTimeout(resolve, 10_000));
+  }
+  if (runId === undefined) {
+    process.stdout.write(`  no CI run registered for ${sha.slice(0, 8)} within 2 minutes; check it by hand\n`);
+  } else {
+    const waited = run(GH, ['run', 'watch', runId, '--repo', repo, '--exit-status'], { allowFailure: true });
+    const tail = waited.trim().split('\n').filter((line) => line.trim().length > 0).slice(-2);
+    process.stdout.write(`  ${tail.join('\n  ') || `run ${runId} finished`}\n`);
+  }
 }
 
 step(dryRun ? 'Dry run complete — nothing was changed' : `Released ${manifest.name}@${version}`);
