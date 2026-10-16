@@ -63,13 +63,25 @@ export const CHILD_TOOLS = [
   // Running commands. `pwsh` is the one shell this profile reports as a global
   // tool, and background jobs are switched off for it in the preset (see above).
   //
-  // `ops_bash` is deliberately NOT here even though it looks like the natural
-  // choice on Windows: the runtime's own tool inventory — the list
-  // `tools.restrict()` prints when it refuses a name — includes
-  // ops_glob/ops_grep/ops_inspect_local_file but NOT ops_bash, so naming it breaks
-  // every child creation exactly the way `subagent` did. The dsh-ops shell
-  // component publishes it through a different path than its file component. Add
-  // it only after seeing it in your own environment's inventory line.
+  // `ops_bash` is deliberately NOT here, and it is not an oversight — it CANNOT be
+  // here, for the same reason `subagent` cannot:
+  //
+  //   * dsh-ops publishes it per AGENT, not globally. `lib/session-shells.js`
+  //     mounts a child plugin on each `agent.ctx` and registers the tool there
+  //     (`entry.ctx.tools.register(definition)`), then walks the agents again to
+  //     `tools.restrict({ deny: [BASH_TOOL] })` on the ones it may not serve. So it
+  //     never appears in the runtime's global inventory, and naming it in a mask
+  //     fails child creation the way `subagent` did.
+  //   * It cannot be granted because it does not need granting. `allowed(agent)`
+  //     tests the agent's OWN session policy — full access, or a confinement
+  //     provider available — and a child qualifies on the same terms as the root,
+  //     so a child receives `ops_bash` from dsh-ops by itself. That project's own
+  //     manual-validation notes say it plainly: a restricted session does not
+  //     publish `ops_bash`; it appears only with full access, `publishBashTool`,
+  //     a resolvable bash payload and an available subprocess service.
+  //
+  // The consequence worth knowing: a child's shell can differ from the root's
+  // because of its own permission mode, not because of anything this mask says.
   'pwsh',
   'todo_write',
   'ask_user_question',
