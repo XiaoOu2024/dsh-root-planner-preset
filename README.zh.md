@@ -102,9 +102,20 @@ dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 
 **已验证**：补丁可被 loader 解析；解析出的人设与 `persona.txt` **逐字节相同**；两个委派工具的白名单排除了所有写入入口、且只包含**运行时报告的全局工具**；干净检出后校验通过（`.gitattributes` 已钉死 LF，否则 Windows 克隆会破坏逐字节校验）；深度覆盖已落到合成配置。
 
-**因一次真实故障而修复**：在跑着 `root-planner` 的会话里创建子代理失败，报 `tools.restrict() names unknown global tool "subagent"`。根因是本包**设计上的错误**，不是配置错误——`subagent` 注册在每个被组合 Agent 自身的作用域里，而 `toolFilter` 只接受全局工具名，白名单写了一个它永远不可能合法包含的名字。现在白名单不再写它，`verify-patch.mjs` 会**按意图断言它必须缺席**，白名单也收敛到 `child-tools.mjs` 单一真源，生成器与校验脚本不可能再各说各话。
+**已在真实任务上端到端验证**——那次运行在一个大型逆向工程目录树上产生了 **24 个后代会话**。下面每一条都读自**会话日志自己持久化的工具 schema**，那是注册表的输出，不是模型的回忆：
 
-**仍未验证**：**还没有一次成功的子代理派出。** 递归按上面的理由**应当**可用——子代理继承预设、因此拥有自己的作用域 `subagent`，而限制不会隐藏作用域注册——但这个推理恰好就是本包已经错过一次的那类推理。在有人报告"两层委派成功"之前，请当作未确认。
+| 性质 | 证据 |
+|---|---|
+| 白名单覆盖每一层 | 根被提供 **31** 个工具；深度 1 与深度 2 的 agent 都是 **25** 个。差额正好是白名单排除的那 6 个：`workflow`、`present`、`job_output`、`job_list`、`job_kill`、`exit_plan_mode`。 |
+| 子代理确实是工人 | `write`、`edit`、`ops_replace`、`pwsh` 在每一层都在，而且真的被用了：根 10 次 `write` + 60 次 `edit`，某个深度 1 的子代理 14 次 `write`，某个深度 2 的孙代理 20 次 `write`。 |
+| 子代理留不下运行中的进程 | `run_in_background` 在三个层级的 `pwsh` schema 里**都不存在**。（朴素的全日志搜索会给出相反答案——`ops_bash` 自己的描述里也有这个词，所以要用 `tools/check-pwsh-background.mjs` 看 schema 窗口。） |
+| 递归成立 | 12 个直接子代理，其中 4 个继续派出了 12 个孙代理；根自己做了 14 次 `subagent` 调用。 |
+| 深度上限有效 | 树停在深度 2；整个日志目录里不存在任何深度 3 的会话。 |
+| 在世上限是软拒绝而非致命 | 8 路扇出时出现一次 `subagent limit reached (active child limit: 8)`；子代理完结时结算通知归还了槽位，此后每次委派都成功。 |
+
+**一处事后更正**：本文件早期版本称"白名单让子代理成为叶子"。**并非如此。** `subagent` 是按每个被组合 Agent 注册、而非全局注册，所以白名单**永远无法写下它的名字**；而限制只过滤全局工具，因此子代理**保有此工具**。递归的边界是 `maxDepth`，不是白名单。
+
+**想自己核**：`tools/verify-session.mjs` 能证明每个会话跑的是哪个预设、深度多少，但它不读工具 schema。逐层工具清单用 `tools/extract-offered-tools.mjs`，进程边界用 `tools/check-pwsh-background.mjs`，实际调用用 `tools/count-tool-calls.mjs`。
 
 ## 参与维护
 

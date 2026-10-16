@@ -122,9 +122,27 @@ Then **start a new session** and pick **Root Planner** in the preset selector. F
 
 **Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; both delegation masks exclude every mutation entry point and name only tools the runtime reports as global; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check); the depth override reached the composed profile.
 
-**Fixed after a real failure**: a subagent spawn on a live `root-planner` session failed with `tools.restrict() names unknown global tool "subagent"`. The cause was a design error in this bundle, not a misconfiguration — `subagent` is registered inside each composed Agent's own scope, and a `toolFilter` takes global names only, so the mask was naming something it could never contain. The mask no longer names it, `verify-patch.mjs` asserts its absence by intent, and the mask is defined once in `child-tools.mjs` so the generator and the verifier cannot drift apart.
+**Verified end to end on a real task** — a 24-descendant run over a large reverse-engineering directory tree. Every line below was read from the session logs' own persisted tool schemas, which are the registry's output rather than a model's recollection:
 
-**Still not verified**: **no subagent has been spawned successfully under this preset yet.** Recursion is expected to work for the reason given above — the child inherits the preset and therefore its own scoped `subagent`, and a restriction does not hide scoped registrations — but that reasoning is exactly the kind that this bundle has already been wrong about once. Treat it as unconfirmed until someone reports a two-level delegation working.
+| Property | Evidence |
+|---|---|
+| The mask reaches every child | The root is offered **31** tools; depth-1 and depth-2 agents are offered **25**. The difference is exactly the six the mask omits: `workflow`, `present`, `job_output`, `job_list`, `job_kill`, `exit_plan_mode`. |
+| Subagents really are workers | `write`, `edit`, `ops_replace` and `pwsh` are present at every depth and were used: 10 `write` and 60 `edit` from the root, 14 `write` from one depth-1 agent, 20 `write` from a depth-2 agent. |
+| No subagent can leave a process running | `run_in_background` is absent from the `pwsh` schema at all three depths. (A naive log search says otherwise — the phrase also occurs in `ops_bash`'s own description, which is why `tools/check-pwsh-background.mjs` inspects the schema window instead.) |
+| Recursion works | 12 direct children, 4 of which delegated onward to 12 grandchildren; the root itself made 14 `subagent` calls. |
+| The depth cap holds | The tree stops at depth 2; no depth-3 session exists anywhere in the log directory. |
+| The live-child cap is soft, not fatal | One `subagent limit reached (active child limit: 8)` during an 8-wide fan-out. Settlements returned slots as children finished, and every later delegation succeeded. |
+
+**Corrected after the fact**: an earlier version of this file claimed the mask made
+children leaf agents. It does not. `subagent` is registered per composed agent rather
+than globally, so the mask can never name it — and because a restriction filters
+globals only, a child keeps it. Recursion is bounded by `maxDepth`, not by the mask.
+
+**How to check it yourself**: `tools/verify-session.mjs` proves which preset each
+session ran and at what depth, but it does not read tool schemas. Use
+`tools/extract-offered-tools.mjs` for the per-level tool list,
+`tools/check-pwsh-background.mjs` for the process bound, and
+`tools/count-tool-calls.mjs` for what a level actually called.
 
 ## Contributing
 
