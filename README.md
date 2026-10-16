@@ -21,9 +21,25 @@ This preset takes the middle line: **workers with tools, bounded by their task.*
 | Nobody runs an unbounded service | Persona rules for the root and for subagents | Prompt-level, covering what a schema cannot (`ops_bash` has no job registry) |
 | A subagent stays inside the task it was given | Persona rules: named files only, no drive-by fixes, no racing siblings | Prompt-level |
 | Delegation depth is the user's setting | The runtime depth cap (`subagent.maxDepth`) | **Structural**: past the cap it throws `SubagentDepthError` |
+| Live children are capped as well | `subagent.maxActiveSubagents` | **Structural**: past the cap a delegation fails with `subagent limit reached`, and it does not queue |
 | The root decides; workers execute | Persona rules | Prompt-level |
 
 The mask is an **allow** list: a tool added by a future plugin is invisible to subagents until it is added here.
+
+### Two limits you will meet on a broad task
+
+Both are Host settings, both are structural, and both are documented because they read
+like defects the first time:
+
+- **`subagent limit reached (active child limit: N)`** — a delegated child is
+  *resident*, not merely running: a slot returns only after its turn ends, its inbox
+  is empty, and its own children are disposed. A wide fan-out therefore holds every
+  slot until that work actually finishes, and the batch does not queue behind the
+  cap. Raise `maxActiveSubagents` (**Settings → Subagents**) if the machine can
+  carry more live agents, or dispatch a batch you can finish and collect it before
+  opening the next. The author's own profile carries 16 for this reason.
+- **`subagent depth N exceeds maxDepth M`** — a delegation from a leaf. That is the
+  cap working, not a failure; the child reads the material itself.
 
 ## How it works
 
