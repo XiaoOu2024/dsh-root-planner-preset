@@ -17,42 +17,45 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { createZstdDecompress } from 'node:zlib';
 
+/** Locate the end of the first zstd frame, where the next one begins. */
+function frameBytes(buf) {
+  for (let i = 4; i + 4 <= buf.length; i += 1) {
+    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) return i;
+  }
+  return buf.length;
+}
+
 /**
- * Decompress a concatenated-zstd file. The session logs are appended frame by
- * frame, and a single decompress call stops at the first frame — which yields a
- * 300-byte file out of an 85 KB one and silently hides every event.
+ * Decompress a concatenated-zstd file frame by frame.
+ *
+ * A single decompress call stops at the first frame, which is why a naive read of
+ * these logs returns 323 bytes out of 139 KB and silently hides every event.
+ * Measured on a real log: frame-by-frame reads 143 654 characters where one call
+ * read 323.
  * @param {Buffer} buf - whole file.
  * @returns {Promise<string>} the complete decompressed text.
  */
 async function decompressAll(buf) {
-  const out = [];
   let rest = buf;
-  for (;;) {
-    const text = await new Promise((resolve, reject) => {
-      const chunks = [];
-      const dec = createZstdDecompress();
-      dec.on('data', (chunk) => chunks.push(chunk));
-      dec.on('error', reject);
-      dec.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
-      dec.end(rest);
-    });
-    if (text.length === 0) break;
-    out.push(text);
-    // Each frame's decompressed size is not exposed; feed the remainder in and let
-    // the next frame fail once the buffer is exhausted.
-    const consumed = frameBytes(rest, text.length);
-    if (consumed === undefined || consumed >= rest.length) break;
-    rest = rest.subarray(consumed);
+  let text = '';
+  while (rest.length > 0) {
+    const slice = rest.subarray(0, frameBytes(rest));
+    try {
+      text += await new Promise((resolve, reject) => {
+        const chunks = [];
+        const dec = createZstdDecompress();
+        dec.on('data', (chunk) => chunks.push(chunk));
+        dec.on('error', reject);
+        dec.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+        dec.end(slice);
+      });
+    } catch {
+      break;
+    }
+    if (slice.length >= rest.length) break;
+    rest = rest.subarray(slice.length);
   }
-  return out.join('');
-}
-
-/** Locate the end of the first zstd frame by magic-number scanning. */
-function frameBytes(buf, ) {
-  for (let i = 4; i + 4 <= buf.length; i += 1) {
-    if (buf[i] === 0x28 && buf[i + 1] === 0xb5 && buf[i + 2] === 0x2f && buf[i + 3] === 0xfd) return i;
-  }
-  return undefined;
+  return text;
 }
 
 /** Read one session directory into {header, events}. */
@@ -86,6 +89,7 @@ const base = join(rootDir, '..');
 const root = await readSession(rootDir);
 
 const sessions = [{ dir: rootDir, ...root }];
+const candidates = [];
 for (const name of readdirSync(base)) {
   if (name === rootDir.split(/[\\/]/).pop()) continue;
   const candidate = join(base, name);
@@ -96,10 +100,31 @@ for (const name of readdirSync(base)) {
   }
   const session = await readSession(candidate);
   // Only real children count. Sibling ROOT sessions of other conversations live in
-  // the same directory and have no parentSession — including them made the report
-  // claim the run failed when it had not.
+  // the same directory and have no parentSession — including them made this report
+  // claim a run had failed when it had not.
   if (session.header?.origin !== 'subagent') continue;
-  sessions.push({ dir: candidate, ...session });
+  candidates.push({ dir: candidate, ...session });
+}
+
+/**
+ * Keep only the root's real descendants. Other presets delegate too, and their
+ * subagent sessions sit in the same directory; without this walk they appear as
+ * children of this run and fail the preset check for the wrong reason.
+ */
+const rootId = root.header?.id;
+const childrenOf = new Map();
+for (const session of candidates) {
+  const parent = session.header?.parentSession;
+  if (parent === undefined) continue;
+  const list = childrenOf.get(parent) ?? [];
+  list.push(session);
+  childrenOf.set(parent, list);
+}
+const queue = [...(childrenOf.get(rootId) ?? [])];
+while (queue.length > 0) {
+  const session = queue.shift();
+  sessions.push(session);
+  queue.push(...(childrenOf.get(session.header?.id) ?? []));
 }
 
 const failures = [];
