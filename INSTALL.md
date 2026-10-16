@@ -114,7 +114,7 @@ git clone https://github.com/XiaoOu2024/dsh-root-planner-preset
 | 委派立刻返回**深度错误** | `maxDepth` 没设或设得太小 | 见第三节，设为 `2` |
 | 子代理**什么都不能读** | 白名单过窄（比如你删过头了） | 至少保留 `read`、`glob`、`grep`、`ops_inspect_local_file`、`ops_glob`、`ops_grep` |
 | 子代理**还是能改文件** | 根会话没选中 Root Planner（见第四节），或白名单被改坏了 | 先查会话文件的 `agentPreset` 字段是否 `root-planner`；再确认 `cordis.patch.yml` 里两处 `toolFilter.allow` 都**不含** `write`、`edit`、`ops_replace`、`ops_bash`、`pwsh`。改完必须重开会话 |
-| 行为与人设描述**对不上**（比如"子代理能写"、"规则没生效"） | 最常见的原因就是**根会话跑在别的预设上**，而它的子代理跑在 root-planner 上——两者的规则和权限本来就不一样 | 查会话文件第一行的 `agentPreset`；也可跑 `node tools/inspect-sessions.mjs <会话目录>` 一次性打印根与全部子会话的预设、深度与工具清单 |
+| 行为与人设描述**对不上**（比如"子代理能写"、"规则没生效"） | 最常见的原因就是**根会话跑在别的预设上**，而它的子代理跑在 root-planner 上——两者的规则和权限本来就不一样 | 跑 `node tools/verify-session.mjs <会话目录>`，它会判定根与全部子会话的预设、深度与父子关系 |
 | 改了 `persona.txt` 但没生效 | 会话与子代理都锁定启动时的插件版本 | 开**新会话**；必要时把 `preset-root-planner` 在插件列表里关掉再打开 |
 | Windows 上校验报**人设不一致** | 换行符被 Git 改写了 | 确认 `.gitattributes` 存在且含 `* text=auto eol=lf`，重新克隆一次 |
 

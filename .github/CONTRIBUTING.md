@@ -82,6 +82,36 @@ script prints `SKIP` and explains why. That is a pass, not a failure.
 - Keep `main` linear — the branch protection refuses merge commits, so rebase
   rather than merge.
 
+## Releasing
+
+`node release.mjs <patch|minor|major|X.Y.Z>` does the whole sequence. Every step in
+it exists because the manual version went wrong at least once:
+
+1. regenerates `cordis.patch.yml` and refuses to continue unless
+   `verify-patch.mjs` passes;
+2. bumps `package.json` and commits with a local-time stamp;
+3. pushes (the owner bypasses branch protection; a collaborator's push is refused,
+   so open a pull request instead);
+4. publishes to `https://registry.npmjs.org/` **explicitly** — the configured
+   registry is a read-only mirror that also lags behind, which is how an install
+   right after a release fails with *No matching version found*;
+5. **polls the registry for the exact version** rather than trusting the exit code,
+   because publishing on this account is staged and `npm publish` can print success
+   without the version ever appearing;
+6. upgrades the local profile so the machine runs what was published.
+
+`--dry-run` walks the whole thing without changing anything; `--skip-install` and
+`--skip-gh` drop the last two steps.
+
+Run it from a terminal. Inside DSH's own sandbox its `spawn` calls fail with
+`EPERM` on Windows — that is the sandbox's piped-stdio boundary, not a defect in
+the script.
+
+**A release is not a verification.** The script can put a version on npm while the
+preset stays unproven. Restart `dsh web`, open a new session on Root Planner, and
+confirm the *root* actually composed with it — `node tools/verify-session.mjs
+<session-dir>` — before believing anything about behaviour.
+
 ## How `main` is protected
 
 `main` requires the `verify` status check (strict: the branch must be up to date),
