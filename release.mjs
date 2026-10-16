@@ -39,7 +39,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const OFFICIAL_REGISTRY = 'https://registry.npmjs.org/';
 const PROXY = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY ?? 'http://127.0.0.1:7897';
 const GIT = process.env.DSH_RELEASE_GIT ?? 'git';
-const GH = process.env.DSH_RELEASE_GH ?? 'gh';
+// `gh` is not installed on PATH on this machine; it lives in a standalone extract.
+const GH = process.env.DSH_RELEASE_GH ?? 'D:/Tools/gh/2.102.0/bin/gh.exe';
 const PUBLISHER = process.env.DSH_RELEASE_PUBLISHER ?? (process.platform === 'win32' ? 'pnpm' : 'npm');
 
 const argv = process.argv.slice(2);
