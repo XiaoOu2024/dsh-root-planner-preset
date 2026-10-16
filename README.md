@@ -87,7 +87,7 @@ Then **start a new session** and pick **Root Planner** in the preset selector. F
 
 ## Contributing
 
-Issues and pull requests are welcome — this repository is meant to be maintained by more than its author. The license is [MIT](LICENSE), so forking, modifying and redistributing are all permitted.
+Issues and pull requests are welcome — this repository is meant to be maintained by more than its author. The license is [MIT](LICENSE), so forking, modifying and redistributing are all permitted. **[CONTRIBUTING.md](.github/CONTRIBUTING.md) has the workflow, the checks, and the ground rules** — read it before changing the persona.
 
 Useful contributions, roughly in order of value:
 

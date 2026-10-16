@@ -31,6 +31,8 @@ Paths below are relative to the repository root; this file lives in `docs/`.
 | `.gitattributes` | Pins LF; without it a Windows checkout breaks the byte-identity check. |
 | `README.md` / `README.zh.md` | The English and Chinese front pages, cross-linked. npm renders the repository root `README.md`, which is why the English one holds that name. |
 | `INSTALL.md` | Recipient-facing setup steps and troubleshooting (Chinese). |
+| `.github/CONTRIBUTING.md` | The contributor workflow: regenerate, verify, and the rules a change must not break. |
+| `.github/workflows/verify.yml` | CI: fails when `cordis.patch.yml` drifts from `persona.txt`, and runs the mask check. |
 
 ```sh
 node build-patch.mjs             # after every persona.txt edit

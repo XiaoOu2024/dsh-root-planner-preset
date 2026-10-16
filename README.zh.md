@@ -87,7 +87,7 @@ dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 
 ## 参与维护
 
-**欢迎提 issue 和 PR——这个仓库本来就打算由作者之外的人一起维护。** 许可证是 [MIT](LICENSE)，fork、修改、再分发都是允许的。
+**欢迎提 issue 和 PR——这个仓库本来就打算由作者之外的人一起维护。** 许可证是 [MIT](LICENSE)，fork、修改、再分发都是允许的。**[CONTRIBUTING.md](.github/CONTRIBUTING.md) 写清了流程、校验项和底线要求**，改人设之前请先读它。
 
 按价值排序，有用的贡献大概是这样：
 
