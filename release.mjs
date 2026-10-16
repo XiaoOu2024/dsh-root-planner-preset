@@ -220,6 +220,26 @@ step(`Upgrade the local "${profile}" profile so the machine runs what was publis
 if (dryRun || skipInstall) {
   process.stdout.write('  skipped\n');
 } else {
+  // The profile installs through the CONFIGURED registry, which is a mirror that
+  // lags the official one — so a version that just went live can still answer
+  // "No matching version found" here. That is what made this step fail after the
+  // 1.1.4 release, with nothing wrong on the npm side. Wait for the mirror, then
+  // name the official registry anyway so the install works either way.
+  const mirror = process.env.DSH_RELEASE_MIRROR ?? 'https://registry.npmmirror.com/';
+  const probeMirror = () =>
+    spawnSync('curl', ['-s', '-o', '/dev/null', '-w', '%{http_code}', '-m', '20', '-x', PROXY, `${mirror}${manifest.name}/${version}`], {
+      encoding: 'utf8',
+    }).stdout?.trim();
+  let mirrored = false;
+  for (let attempt = 1; attempt <= 30 && !mirrored; attempt += 1) {
+    mirrored = probeMirror() === '200';
+    if (!mirrored) {
+      if (attempt === 1) process.stdout.write(`  waiting for ${mirror} to mirror ${version}…\n`);
+      await new Promise((resolve) => setTimeout(resolve, 20_000));
+    }
+  }
+  process.stdout.write(mirrored ? `  ${mirror} has it\n` : `  ${mirror} still lacks it; using the official registry\n`);
+
   // `dsh` is a shell shim on Windows too, so it is invoked through Node rather
   // than spawned directly. DSH_RELEASE_DSH overrides the entry point.
   const dshEntry = process.env.DSH_RELEASE_DSH ?? 'D:/nodejs/npm_global/node_modules/@deepseek-ai/dsh/lib/bin.js';
