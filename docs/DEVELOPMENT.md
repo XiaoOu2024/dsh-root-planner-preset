@@ -232,5 +232,7 @@ directory is not read. `CLAUDE.md` is loaded with the same candidates, and ident
 sibling files render once.
 
 The persona carries one precedence clause instead of the conventions themselves:
-project files apply, but the subagent read-only rule wins where they conflict,
-because the runtime enforces it and a project file cannot.
+project files apply, but the subagent's task bound wins where they conflict —
+a worker changes the files its task names and nothing else, and that is enforced by
+the runtime's tool grant plus the persona, neither of which a project file can
+override.

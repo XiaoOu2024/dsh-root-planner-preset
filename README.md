@@ -1,41 +1,43 @@
 # dsh-root-planner-preset
 
-An agent preset for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) that **separates reading from deciding**.
+An agent preset for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) that **separates deciding from doing**.
 
-The root agent's context holds task analysis, planning and decisions; file reading and information queries go to subagents that return summaries only. Creating, modifying and deleting files stays with the root agent — subagents do not even have the tools.
+The root agent's context holds the plan and the decisions; reading, editing and running commands go to subagents that report back summaries. Subagents are full workers — they have `write`, `edit` and a shell — and the one thing none of them may leave behind is **a process still running**.
 
-> One agent in the tree has hands. Every other agent has only eyes.
+> The root decides, the workers do the work, and nothing outlives the task.
 
 [中文说明](README.zh.md) | [Install](INSTALL.md) | [Maintainer notes](docs/DEVELOPMENT.md)
 
 ## The problem it solves
 
-On a long task a coding agent's context fills up with raw file contents, and it forgets the goal, loses the plan, and starts repeating work. The usual answer — "delegate more to subagents" — does not hold on its own: a subagent will still edit files on its way past, and work gets passed further down without limit.
+On a long task a coding agent's context fills up with raw file contents and command output, and it forgets the goal, loses the plan, and starts repeating work. The usual answer — "delegate more to subagents" — fails in two opposite directions: a delegate with no hands cannot do anything, so every step bounces back; and a fleet of delegates with no bounds will edit whatever they like and leave servers running.
 
-This preset turns both of those into structural constraints rather than good intentions:
+This preset takes the middle line: **workers with tools, bounded by their task.**
 
 | Requirement | Mechanism | Strength |
 |---|---|---|
-| Subagents **cannot** create, modify or delete files | A `toolFilter.allow` list on both delegation tools, without `write`, `edit`, `ops_replace` | **Structural**: an absent tool cannot be called |
-| Subagents **have no shell** to work around it | The same list, without `ops_bash`, `pwsh` | **Structural** |
-| Delegation depth is bounded by configuration | The runtime depth cap (`subagent.maxDepth`, a Host setting) | **Structural**: past the cap it throws `SubagentDepthError` |
-| The root agent owns every mutation | Persona rules (the mask applies to children only) | Prompt-level |
-| A heavy task is decomposed rather than ground through | Persona rule 2 | Prompt-level |
+| A subagent can read, **edit files and run commands** | `toolFilter.allow` on both delegation tools includes `write`, `edit`, `ops_replace`, `pwsh` | Grant, not restriction — a worker without tools is not a worker |
+| A subagent cannot leave a process running | `enableRunInBackground: false` on the preset's `pwsh` row: the call is refused **and** `run_in_background` is removed from the tool schema | **Structural** — no model at any depth can reach for a detached process |
+| Nobody runs an unbounded service | Persona rules for the root and for subagents | Prompt-level, covering what a schema cannot (`ops_bash` has no job registry) |
+| A subagent stays inside the task it was given | Persona rules: named files only, no drive-by fixes, no racing siblings | Prompt-level |
+| Delegation depth is the user's setting | The runtime depth cap (`subagent.maxDepth`) | **Structural**: past the cap it throws `SubagentDepthError` |
+| The root decides; workers execute | Persona rules | Prompt-level |
 
-The mask is an **allow** list, not a deny list: a tool added by a future plugin is invisible to subagents until it is added here — **with one exception, and it is what makes recursion work.**
+The mask is an **allow** list: a tool added by a future plugin is invisible to subagents until it is added here.
 
 ## How it works
 
 ```
 root agent  ──delegates──▶  subagent  ──delegates──▶  … until maxDepth
    │                            │
-   └── the only one with write / edit / shell; every level stays read-only
+   └── decides, integrates, and states what each worker may touch
 ```
 
 Two mechanisms decide how deep the tree goes, and they pull in the same direction:
 
-- **The mask** strips every mutation entry point from *every* subagent, at *every*
-  level — the guarantee does not weaken with depth.
+- **The mask** gives *every* subagent, at *every* level, the same working set — read,
+  write, shell — and withholds the same things. The grant does not weaken with
+  depth, and neither does the bound.
 - **The depth cap** (`subagent.maxDepth`, a Host setting you control) decides how
   many levels exist. `2` means root → child → grandchild; raise it and the tree
   deepens, set it to `1` and children become leaves.
@@ -52,9 +54,9 @@ subagent creation failed** with
 `tools.restrict() names unknown global tool "subagent"` — the mask rejecting a
 name it could never legally contain, not the tool being missing.
 
-- **Root agent**: plans first (goal, success criteria, constraints, ordered task list), delegates reading, searching and locating by default, and reads directly only for one known file, a short targeted range, or to check a claim a subagent made.
-- **Subagent**: reads, locates and summarizes. On finding that a file **needs changing** it does not act; it reports the exact change — target path, location (`file:line`), current content, proposed replacement, and why.
-- **The root agent decides** on that proposal and then makes the change itself.
+- **Root agent**: plans first (goal, success criteria, constraints, ordered task list), dispatches work that is heavy enough to be worth the round trip, keeps the integration and the decisions, and states in every delegation which files may be touched.
+- **Subagent**: does the task — reads, edits the files it was given, runs the commands that belong to it — and reports the conclusion with the minimum evidence, plus exactly what it changed.
+- **The root decides** what changes and who makes them; a worker that changes something outside its task is a defect, not initiative.
 
 How does a subagent know it is a subagent? DSH force-inserts the sentence `You are a delegated subagent: …` into every subagent's prompt, injected by the runtime and impossible to remove — while a preset persona has **no** `{{role}}`-style variable available. So the persona states a **test** instead: read your own prompt for that sentence. One persona then serves both roles, and parent and child read the same text, which is what prevents the drift where a parent believes a child is constrained and the child never saw it.
 

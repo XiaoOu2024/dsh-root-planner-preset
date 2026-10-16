@@ -2,15 +2,17 @@
 //  1. every patch file parses as YAML,
 //  2. the preset row and its delegation rows exist,
 //  3. the parsed persona is byte-identical to persona.txt (no YAML mangling),
-//  4. the child tool mask names only global tools, excludes every mutation entry
-//     point, and excludes agent-scoped names that tools.restrict() would reject.
+//  4. the child tool mask names only global tools, keeps the write and shell tools
+//     a worker needs, and excludes agent-scoped names tools.restrict() would reject,
+//  5. the "no unbounded process" property holds: the preset's pwsh row has
+//     background jobs switched off.
 //
 // Usage: node verify-patch.mjs
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CHILD_TOOLS, MUTATION_TOOLS, SCOPE_LOCAL_TOOLS } from './child-tools.mjs';
+import { CHILD_TOOLS, FORBIDDEN_CAPABILITIES, SCOPE_LOCAL_TOOLS } from './child-tools.mjs';
 import { loadYaml, loaderSchema as makeLoaderSchema } from './lib-yaml.mjs';
 
 const yaml = loadYaml();
@@ -54,7 +56,11 @@ check(personaRow?.config?.suffix === 'Your working directory is {{cwd}}.', 'pers
 const expected = readFileSync(join(here, 'persona.txt'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 check(personaRow?.config?.prefix === expected, 'parsed persona is byte-identical to persona.txt');
 check(!personaRow?.config?.prefix?.includes('\t'), 'persona contains no tab characters');
-check(/read-only/.test(personaRow?.config?.prefix ?? ''), 'persona states the read-only rule for subagents');
+check(/read-only/.test(personaRow?.config?.prefix ?? '') === false, 'persona no longer claims subagents are read-only (they are workers with write and shell)');
+check(
+  /Never leave something running/.test(personaRow?.config?.prefix ?? ''),
+  'persona forbids long-running processes for subagents',
+);
 
 const delegation = plugins.find((row) => row.id === 'delegation');
 check(delegation?.group === true, 'delegation is a group row');
@@ -71,13 +77,14 @@ const childTools = [
   return { id, toolName, allow: row?.config?.toolFilter?.allow };
 });
 
-// The mask must deny every mutation entry point, and it can only name global tools.
+// A subagent is a worker: it keeps the write and shell tools, so the mask must
+// only exclude what a mask can name and what would unbounded a child's process.
 for (const { id, allow } of childTools) {
   check(Array.isArray(allow) && allow.length > 0, `${id} declares a non-empty allow list`);
-  for (const denied of MUTATION_TOOLS) {
-    check(!allow?.includes(denied), `${id} mask excludes ${denied}`);
-  }
   check(allow?.includes('read'), `${id} mask keeps read`);
+  for (const worker of ['write', 'edit', 'ops_replace', 'pwsh']) {
+    check(allow?.includes(worker), `${id} mask keeps ${worker} (a subagent must be able to work)`);
+  }
   for (const scoped of SCOPE_LOCAL_TOOLS) {
     check(
       !allow?.includes(scoped),
@@ -85,6 +92,16 @@ for (const { id, allow } of childTools) {
     );
   }
 }
+
+// "No unbounded process": with the shell tools present, the property lives in the
+// preset's own rows rather than in the mask.
+const pwshRow = plugins.find((row) => row.id === 'tool-pwsh');
+check(pwshRow !== undefined, 'the preset declares tool-pwsh');
+check(
+  pwshRow?.config?.enableRunInBackground === FORBIDDEN_CAPABILITIES.pwshConfig.enableRunInBackground,
+  `tool-pwsh sets enableRunInBackground=${FORBIDDEN_CAPABILITIES.pwshConfig.enableRunInBackground} ` +
+    `(found ${JSON.stringify(pwshRow?.config?.enableRunInBackground)}) — without it a subagent could detach a server`,
+);
 
 /**
  * The global tool inventory of the author's profile, captured from a runtime

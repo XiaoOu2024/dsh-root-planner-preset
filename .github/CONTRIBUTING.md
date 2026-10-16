@@ -72,9 +72,13 @@ script prints `SKIP` and explains why. That is a pass, not a failure.
 - **One concern per pull request.** A persona change and a mask change are two
   pull requests unless one requires the other.
 - Say which preset you tested with, and on which platform.
-- Do not weaken the read-only guarantee. `write`, `edit`, `ops_replace`,
-  `ops_bash` and `pwsh` must stay out of the child mask; that property is the
-  point of the preset, so a change that removes it will be declined.
+- Do not weaken the **process bound**. `enableRunInBackground: false` must stay on
+  the preset's `tool-pwsh` row: a change that lets a subagent detach a server drops
+  the one property this preset enforces structurally rather than by asking nicely.
+  `verify-patch.mjs` fails if it is missing.
+- A subagent keeps `write`, `edit`, `ops_replace` and `pwsh`. They are workers —
+  taking their tools away turns every executable step back into the root's own work,
+  which is the failure mode this preset exists to avoid.
 - Keep `main` linear — the branch protection refuses merge commits, so rebase
   rather than merge.
 

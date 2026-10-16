@@ -1,6 +1,6 @@
 {
   "name": "dsh-root-planner-preset",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "type": "module",
   "description": "DSH agent preset that outsources file reading to strictly read-only subagents, while the root agent keeps the plan and owns every file mutation.",
   "license": "MIT",
