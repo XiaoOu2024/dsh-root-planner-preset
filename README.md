@@ -18,26 +18,39 @@ This preset turns both of those into structural constraints rather than good int
 |---|---|---|
 | Subagents **cannot** create, modify or delete files | A `toolFilter.allow` list on both delegation tools, without `write`, `edit`, `ops_replace` | **Structural**: an absent tool cannot be called |
 | Subagents **have no shell** to work around it | The same list, without `ops_bash`, `pwsh` | **Structural** |
-| Subagents cannot delegate further | The same list cannot name the spawn tool, *and* the runtime depth cap | **Structural**, twice over — see below |
+| Delegation depth is bounded by configuration | The runtime depth cap (`subagent.maxDepth`, a Host setting) | **Structural**: past the cap it throws `SubagentDepthError` |
 | The root agent owns every mutation | Persona rules (the mask applies to children only) | Prompt-level |
-| The root agent delegates reading by default | Persona rules | Prompt-level |
+| A heavy task is decomposed rather than ground through | Persona rule 2 | Prompt-level |
 
-The mask is an **allow** list, not a deny list: a tool added by a future plugin is invisible to subagents until it is added here.
+The mask is an **allow** list, not a deny list: a tool added by a future plugin is invisible to subagents until it is added here — **with one exception, and it is what makes recursion work.**
 
 ## How it works
 
 ```
-root agent    <- the only one with write / edit / shell
-└── subagent  <- read-only, and cannot delegate further
+root agent  ──delegates──▶  subagent  ──delegates──▶  … until maxDepth
+   │                            │
+   └── the only one with write / edit / shell; every level stays read-only
 ```
 
-The tree is two levels, enforced twice over. The runtime depth cap does it, and so
-does the mask: `subagent` is mounted inside each composed Agent's own scope rather
-than globally, while a `toolFilter` accepts global tool names only — so a child
-cannot even name it. An earlier version of this bundle did list `subagent` in the
-mask, and **every subagent creation failed** with
-`tools.restrict() names unknown global tool "subagent"`. Raising the depth setting
-therefore does not re-open delegation; there is no tool left to call.
+Two mechanisms decide how deep the tree goes, and they pull in the same direction:
+
+- **The mask** strips every mutation entry point from *every* subagent, at *every*
+  level — the guarantee does not weaken with depth.
+- **The depth cap** (`subagent.maxDepth`, a Host setting you control) decides how
+  many levels exist. `2` means root → child → grandchild; raise it and the tree
+  deepens, set it to `1` and children become leaves.
+
+A `toolFilter` is a mask of **global** tools, and `subagent` is not one: with
+`modelSelectionSettings: true` it is mounted inside each composed Agent's own
+scope, so a mask can never name it. That is why it is absent from
+`child-tools.mjs` — **not** because children lack it. Scoped registrations stay
+visible through a restriction, and every child inherits this preset, so each level
+gets its own `subagent` and can delegate onward until the depth cap stops it.
+
+An earlier version of this bundle did list `subagent` in the mask, and **every
+subagent creation failed** with
+`tools.restrict() names unknown global tool "subagent"` — the mask rejecting a
+name it could never legally contain, not the tool being missing.
 
 - **Root agent**: plans first (goal, success criteria, constraints, ordered task list), delegates reading, searching and locating by default, and reads directly only for one known file, a short targeted range, or to check a claim a subagent made.
 - **Subagent**: reads, locates and summarizes. On finding that a file **needs changing** it does not act; it reports the exact change — target path, location (`file:line`), current content, proposed replacement, and why.
@@ -89,9 +102,9 @@ Then **start a new session** and pick **Root Planner** in the preset selector. F
 
 **Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; both delegation masks exclude every mutation entry point and name only tools the runtime reports as global; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check); the depth override reached the composed profile.
 
-**Fixed after a real failure**: a subagent spawn on a live `root-planner` session failed with `tools.restrict() names unknown global tool "subagent"`. The cause was a design error in this bundle, not a misconfiguration — `subagent` is registered inside each composed Agent's own scope, and a `toolFilter` takes global names only. The mask no longer names it, `verify-patch.mjs` now asserts its absence by intent, and the mask is defined once in `child-tools.mjs` so the generator and the verifier cannot drift apart.
+**Fixed after a real failure**: a subagent spawn on a live `root-planner` session failed with `tools.restrict() names unknown global tool "subagent"`. The cause was a design error in this bundle, not a misconfiguration — `subagent` is registered inside each composed Agent's own scope, and a `toolFilter` takes global names only, so the mask was naming something it could never contain. The mask no longer names it, `verify-patch.mjs` asserts its absence by intent, and the mask is defined once in `child-tools.mjs` so the generator and the verifier cannot drift apart.
 
-**Still not verified**: no subagent has been spawned successfully under this preset yet — the failure above is the only end-to-end evidence there is. The global-tool inventory in `verify-patch.mjs` was transcribed from that runtime error; if your profile registers a different set, the mask is what has to adapt.
+**Still not verified**: **no subagent has been spawned successfully under this preset yet.** Recursion is expected to work for the reason given above — the child inherits the preset and therefore its own scoped `subagent`, and a restriction does not hide scoped registrations — but that reasoning is exactly the kind that this bundle has already been wrong about once. Treat it as unconfirmed until someone reports a two-level delegation working.
 
 ## Contributing
 

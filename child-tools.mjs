@@ -5,19 +5,25 @@
  * These are the only GLOBAL tools a subagent may call. Everything absent is
  * invisible to the child, including every mutation entry point.
  *
- * `subagent` is deliberately NOT here, and cannot be. With
- * `modelSelectionSettings: true` that tool is registered per agent inside the
- * composed Agent's own scope (`dsh-tool-subagent` mounts it through
- * `installScoped`), and `tools.restrict()` takes a mask of *global* tools only —
- * it throws on a scope-local name exactly as it throws on an unknown one:
+ * `subagent` is deliberately NOT here, and cannot be — but that does NOT mean a
+ * subagent lacks it. Two separate facts:
  *
- *   Error: tools.restrict() names unknown global tool "subagent"; known global
- *   tools: ask_user_question, create_goal, edit, … subagent_fork, …
+ *  1. With `modelSelectionSettings: true` the tool is mounted inside each composed
+ *     Agent's own scope (`dsh-tool-subagent` registers it through
+ *     `installScoped`), and `tools.restrict()` takes a mask of *global* tools
+ *     only. It throws on a scope-local name exactly as it throws on an unknown
+ *     one, which is how this bundle broke: every subagent creation failed with
+ *     `tools.restrict() names unknown global tool "subagent"`.
+ *  2. Restrictions only filter globals — "scoped registrations remain visible".
+ *     A child inherits this preset, so it gets its own scoped `subagent` and can
+ *     delegate onward until the runtime depth cap stops it.
  *
- * `subagent_fork` is registered in the preset's own scope instead, so it IS
- * visible to the mask and stays. Both names were in this list until a real
- * subagent spawn failed, which is exactly the class of mistake no amount of
- * reading the source had caught.
+ * So the mask is not what makes a child a leaf; `subagent.maxDepth` is. Listing
+ * `subagent` here rejected a name the mask can never legally contain. Do not add
+ * it back; `verify-patch.mjs` asserts its absence on purpose.
+ *
+ * `subagent_fork` IS registered in the preset's own scope and is observable as a
+ * global, so it stays in the list.
  */
 export const CHILD_TOOLS = [
   'read',
