@@ -39,8 +39,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const OFFICIAL_REGISTRY = 'https://registry.npmjs.org/';
 const PROXY = process.env.HTTPS_PROXY ?? process.env.HTTP_PROXY ?? 'http://127.0.0.1:7897';
 const GIT = process.env.DSH_RELEASE_GIT ?? 'git';
-const NPM = process.env.DSH_RELEASE_NPM ?? 'npm';
 const GH = process.env.DSH_RELEASE_GH ?? 'gh';
+const PUBLISHER = process.env.DSH_RELEASE_PUBLISHER ?? (process.platform === 'win32' ? 'pnpm' : 'npm');
 
 const argv = process.argv.slice(2);
 const dryRun = argv.includes('--dry-run');
@@ -62,12 +62,15 @@ if (bump === undefined) {
 
 const env = { ...process.env, HTTPS_PROXY: PROXY, HTTP_PROXY: PROXY, GIT_TERMINAL_PROMPT: '0' };
 const step = (text) => process.stdout.write(`\n\u25b6 ${text}\n`);
-const run = (command, args, options = {}) => {
-  const result = spawnSync(command, args, { cwd: here, env, encoding: 'utf8', ...options });
-  if (result.status !== 0 && options.allowFailure !== true) {
-    throw new Error(`${command} ${args.join(' ')} failed (${result.status})\n${result.stdout ?? ''}${result.stderr ?? ''}`);
+const run = (command, args, { allowFailure = false, shell = false, ...rest } = {}) => {
+  const result = spawnSync(command, args, { cwd: here, env, encoding: 'utf8', shell, ...rest });
+  // A spawn that never started reports status null and puts the reason in `error`;
+  // surfacing that by name is what turns a silent no-op into a diagnosable failure.
+  if (result.status !== 0 && !allowFailure) {
+    const reason = result.error ? `${result.error.code}: ${result.error.message}` : `exit ${result.status}`;
+    throw new Error(`${command} ${args.join(' ')} failed (${reason})\n${result.stdout ?? ''}${result.stderr ?? ''}`);
   }
-  return `${result.stdout ?? ''}${result.stderr ?? ''}`;
+  return `${result.stdout ?? ''}${result.stderr ?? ''}${result.error ? `\n${result.error.code}: ${result.error.message}` : ''}`;
 };
 const git = (...args) => run(GIT, args).trim();
 
@@ -149,12 +152,28 @@ if (dryRun) {
 }
 
 // ── Publish ──────────────────────────────────────────────────────────────────
-step(`Publish to the official registry (the configured one is a read-only mirror)`);
+step(`Publish with ${PUBLISHER} to the official registry (the configured one is a read-only mirror)`);
 if (dryRun) {
-  process.stdout.write(`  --dry-run: would run npm publish --registry ${OFFICIAL_REGISTRY}\n`);
+  process.stdout.write(`  --dry-run: would run ${PUBLISHER} publish --registry ${OFFICIAL_REGISTRY}\n`);
 } else {
-  const published = run(NPM, ['publish', '--registry', OFFICIAL_REGISTRY, '--access', 'public'], { allowFailure: true });
-  process.stdout.write(`  ${published.split('\n').filter((line) => /\+ |error|Publishing/.test(line)).join('\n  ') || '(no output)'}\n`);
+  // Two Windows facts force the shape of this call, both learned by watching a
+  // publish silently do nothing:
+  //  * `npm` and `pnpm` are shell shims, not executables — `npm` is an sh script
+  //    (ENOENT), `npm.cmd`/`pnpm.cmd` refuse to spawn without a shell (EINVAL),
+  //    and `npm.ps1` is PowerShell (EFTYPE). So the publisher is invoked WITH a
+  //    shell, which is why every argument below must stay shell-safe.
+  //  * The output must be shown even on failure. The first version filtered it
+  //    down to matching lines and printed a blank line when the command never
+  //    ran, hiding the real problem behind a successful-looking step.
+  const published = run(PUBLISHER, ['publish', '--registry', OFFICIAL_REGISTRY, '--access', 'public'], {
+    allowFailure: true,
+    shell: true,
+  });
+  const summary = published
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !/^Progress:|^Packages:|^\+?$/.test(line));
+  process.stdout.write(`${summary.map((line) => `  ${line}`).join('\n') || '  (the publisher printed nothing — treat that as a failure)'}\n`);
 }
 
 // ── Confirm on the registry ──────────────────────────────────────────────────
@@ -170,22 +189,26 @@ if (dryRun) {
       encoding: 'utf8',
     }).stdout?.trim();
 
+  // Measured on this account: 1.1.2 was still 404 at 200s and live shortly after,
+  // so the window has to be generous or a successful release reads as a failure.
   let live = false;
-  for (let attempt = 1; attempt <= 20 && !live; attempt += 1) {
+  for (let attempt = 1; attempt <= 60 && !live; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10_000));
     const code = probe(`${OFFICIAL_REGISTRY}${manifest.name}/${version}`);
     if (code === '200') {
       live = true;
       process.stdout.write(`  ${manifest.name}@${version} is live on the registry\n`);
-    } else if (attempt % 5 === 0) {
+    } else if (attempt % 6 === 0) {
       process.stdout.write(`  still not visible after ${attempt * 10}s (last HTTP ${code})\n`);
     }
   }
   if (!live) {
     process.stderr.write(
-      '\n  NOT VISIBLE. On this account publishing is STAGED: check for a pending\n' +
-        '  approval on npmjs.com — `npm stage list` can report nothing while the\n' +
-        '  registry still refuses the version.\n',
+      '\n  NOT VISIBLE after 10 minutes. Two known causes, in order of likelihood:\n' +
+        '   1. propagation lag — this registry answered 404 for over three minutes on a\n' +
+        '      publish that had already succeeded, so re-check before concluding anything;\n' +
+        '   2. staged publishing — check npmjs.com for a pending approval. `npm stage list`\n' +
+        '      reports nothing even when a version is held, so it is not the test.\n',
     );
     process.exit(1);
   }
@@ -196,10 +219,14 @@ step(`Upgrade the local "${profile}" profile so the machine runs what was publis
 if (dryRun || skipInstall) {
   process.stdout.write('  skipped\n');
 } else {
-  const spec = `${manifest.name}@${version}`;
-  const output = run('dsh', ['plugin', '--profile', profile, 'add', spec, '--registry', OFFICIAL_REGISTRY], {
-    allowFailure: true,
-  });
+  // `dsh` is a shell shim on Windows too, so it is invoked through Node rather
+  // than spawned directly. DSH_RELEASE_DSH overrides the entry point.
+  const dshEntry = process.env.DSH_RELEASE_DSH ?? 'D:/nodejs/npm_global/node_modules/@deepseek-ai/dsh/lib/bin.js';
+  const output = run(
+    process.execPath,
+    [dshEntry, 'plugin', '--profile', profile, 'add', `${manifest.name}@${version}`, '--registry', OFFICIAL_REGISTRY],
+    { allowFailure: true },
+  );
   const installed = (() => {
     try {
       return JSON.parse(
@@ -212,7 +239,11 @@ if (dryRun || skipInstall) {
   if (installed === version) {
     process.stdout.write(`  profile now runs ${manifest.name}@${installed}\n`);
   } else {
-    process.stdout.write(`  install reported ${installed ?? 'unknown'} — run it by hand if this matters:\n${output.trim()}\n`);
+    process.stdout.write(
+      `  the profile reports ${installed ?? 'unknown'} rather than ${version} — install it by hand:\n` +
+        `    dsh plugin --profile ${profile} add ${manifest.name}@${version} --registry ${OFFICIAL_REGISTRY}\n` +
+        `${output.trim().split('\n').slice(-6).map((line) => `    ${line}`).join('\n')}\n`,
+    );
   }
 }
 
