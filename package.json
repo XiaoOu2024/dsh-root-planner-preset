@@ -26,5 +26,8 @@
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
+  },
+  "devDependencies": {
+    "js-yaml": "^4.1.0"
   }
 }

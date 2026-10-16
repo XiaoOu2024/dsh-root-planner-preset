@@ -1,0 +1,51 @@
+# Verifies the bundle on every push and pull request.
+#
+# Two failure modes this exists to catch, both of which are silent locally:
+#
+#  1. `cordis.patch.yml` is generated from `persona.txt`. Someone edits the
+#     generated file by hand (or edits persona.txt and forgets to regenerate), and
+#     the persona the preset actually ships no longer matches the source. The
+#     generator is deterministic, so re-running it and diffing the result catches
+#     exactly that drift.
+#  2. A change to the child tool mask names a tool that is not a registered global
+#     tool. `tools.restrict()` throws on an unknown name at child-creation time, so
+#     this only surfaces the first time a subagent is actually spawned — never in a
+#     local syntax check.
+#
+# The bundle itself ships no dependencies; `js-yaml` is a devDependency of this
+# repository only, and `lib-yaml.mjs` picks it up from the checkout.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install the local YAML parser
+        run: npm ci --ignore-scripts
+
+      - name: The committed patch matches persona.txt
+        run: |
+          node build-patch.mjs
+          if ! git diff --exit-code -- cordis.patch.yml; then
+            echo "::error file=cordis.patch.yml::cordis.patch.yml is out of date. Run 'node build-patch.mjs' and commit the result instead of editing it by hand."
+            exit 1
+          fi
+
+      - name: Patch structure, persona byte-identity and the child tool mask
+        run: node verify-patch.mjs
