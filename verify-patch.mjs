@@ -161,25 +161,45 @@ check(
 const workerDelegation = workerPlugins.find((row) => row.id === 'delegation');
 const workerDelegationRows = workerDelegation?.config ?? [];
 
-// Loader row id -> the model-facing tool name that row publishes.
+// Loader row id -> the model-facing tool name that row publishes, plus the provider whose
+// capability decides whether a preset may be selected for it.
 const childTools = [
-  { id: 'tool-subagent', toolName: 'subagent' },
-  { id: 'tool-subagent-fork', toolName: 'subagent_fork' },
-].map(({ id, toolName }) => {
+  { id: 'tool-subagent', toolName: 'subagent', provider: 'spawn' },
+  { id: 'tool-subagent-fork', toolName: 'subagent_fork', provider: 'fork' },
+].map(({ id, toolName, provider }) => {
   const row = delegationRows.find((entry) => entry.id === id);
   check(row !== undefined, `delegation declares ${id}`);
   check(row?.config?.toolName === toolName, `${id} publishes the tool name ${toolName}`);
-  check(row?.config?.agentPreset === 'root-planner-worker', `${id} spawns into the worker preset`);
+  check(row?.config?.provider === provider, `${id} uses the ${provider} provider`);
   check(
     row?.config?.toolFilter === undefined,
     `${id} carries no toolFilter (DSH 0.2.1 removed it and strips it silently)`,
   );
-  // A grandchild must land in the worker preset too, or the tree degrades at depth 2:
-  // the platform default persona and the full tool list come back one level down.
-  const nested = workerDelegationRows.find((entry) => entry.id === id);
-  check(nested?.config?.agentPreset === 'root-planner-worker', `worker ${id} spawns into the worker preset too`);
-  return { id, toolName };
+  // Only the spawn provider supports independent preset selection. A grandchild spawned
+  // through it must land in the worker preset too, or the tree degrades at depth 2: the
+  // platform default persona and the full tool list come back one level down.
+  if (provider === 'spawn') {
+    check(row?.config?.agentPreset === 'root-planner-worker', `${id} spawns into the worker preset`);
+    const nested = workerDelegationRows.find((entry) => entry.id === id);
+    check(nested?.config?.agentPreset === 'root-planner-worker', `worker ${id} spawns into the worker preset too`);
+  }
+  return { id, toolName, provider };
 });
+
+// The fork provider declares `agentPreset: false` together with
+// `inheritsParentContext: true`, and its row throws at activation when a preset is
+// configured for it — which is what made the whole preset fail to load on DSH 0.2.1.
+// Assert the absence in both presets so a later edit cannot reintroduce it.
+for (const [label, rows] of [
+  ['the root preset', delegationRows],
+  ['the worker preset', workerDelegationRows],
+]) {
+  const fork = rows.find((entry) => entry.id === 'tool-subagent-fork');
+  check(
+    fork?.config?.agentPreset === undefined,
+    `${label} sets no agentPreset on the fork row (the fork provider rejects one)`,
+  );
+}
 
 // A subagent is a worker: the curated set keeps the write and shell tools.
 for (const worker of ['read', 'write', 'edit', 'ops_replace', 'pwsh']) {
