@@ -44,6 +44,21 @@ dsh plugin --profile web add dsh-root-planner-preset
 
 > 也可以钉版本：`dsh plugin --profile web add dsh-root-planner-preset@1.0.0`
 
+### 配套：子代理工作区守卫（强烈建议）
+
+预设规定子代理只写 `_agents/` 下的自己的目录，但**规定不是围栏**——子代理有 shell，它有能力写进你的工作区。守卫插件把这条边界变成**真正的拒绝**：
+
+```sh
+dsh plugin --profile web add dsh-root-planner-guard --registry https://registry.npmjs.org/
+```
+
+- npm 包：<https://www.npmjs.com/package/dsh-root-planner-guard>，源码：<https://github.com/XiaoOu2024/dsh-root-planner-guard>
+- **必须重启 `dsh web` 才生效**：运行期间装上的插件不会加载新的模块代。
+- 它是 **profile 级 bundle，不是预设行**（预设行挂在每个 agent 作用域里，而这里需要全局一个实例），所以 `add` 预设**不会**自动带来它，要单独加。
+- 装上之后：子代理写 `_agents/` 之外的文件、或者 `pwsh` 不带 workdir（默认就是你的工作目录），都会被**直接拒绝**并收到一条说明边界的错误。
+
+> 机器上配的是镜像源时 `--registry` 那个参数不能省：pnpm 的供应链校验会读镜像的 manifest，而镜像滞后时会把已发布的版本报成"不存在"。
+
 ### 方式 2：GitHub 源码
 
 ```sh
