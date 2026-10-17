@@ -53,7 +53,15 @@ const loaderSchema = makeLoaderSchema(yaml);
 // 1. The real profile patch layer still parses.
 const patches = yaml.load(readFileSync(PATCH, 'utf8'), { schema: loaderSchema });
 check(Array.isArray(patches), 'profile patch layer is a YAML sequence');
-check(patches.length === 6, `profile patch layer has 6 entries (found ${patches?.length})`);
+// No exact entry count: this file belongs to the user, who adds overrides of their own
+// (a model provider, a plugin toggle) and whose plugin manager writes rows as bundles
+// are installed. An earlier version asserted a fixed count of 6 and failed on DSH
+// 0.2.1 purely because the user had added a provider — a false alarm that said nothing
+// about the preset. What matters is that our override is present and well formed.
+check(
+  (patches ?? []).length > 0 && (patches ?? []).every((patch) => typeof patch?.id === 'string'),
+  `every entry in the profile patch layer is an id-targeted override (found ${patches?.length})`,
+);
 
 const depthPatch = patches.find((patch) => patch.id === 'subagent');
 check(depthPatch !== undefined, 'a subagent override exists');
@@ -85,12 +93,16 @@ for (const patch of patches) {
 const resolved = applied.find((row) => row.id === 'subagent');
 check(resolved?.config?.maxDepth === 2, 'after patching, subagent.maxDepth resolves to 2');
 
-// 4. Only these two rows change; nothing else in the layer is disturbed.
-const otherIds = patches.filter((patch) => patch.id !== 'subagent').map((patch) => patch.id);
-check(
-  otherIds.join(',') === 'ui-settings-general,session-log-deepseek,ui-chat,agent-default-model,locale',
-  'the five pre-existing overrides are untouched',
-);
+// 4. Our override does not disturb the overrides that were already there. Asserted as a
+// SUBSET, not as an exact list: the profile layer is the user's, and new entries appear
+// in it through normal use (a model provider, a plugin toggle written by `dsh plugin`).
+// An earlier version compared the joined id list and failed the moment the user added
+// one — reporting "the five pre-existing overrides are untouched" as false while nothing
+// had touched them.
+const PRE_EXISTING = ['ui-settings-general', 'session-log-deepseek', 'ui-chat', 'agent-default-model', 'locale'];
+const presentIds = new Set((patches ?? []).map((patch) => patch.id));
+const missing = PRE_EXISTING.filter((id) => !presentIds.has(id));
+check(missing.length === 0, `pre-existing overrides are still present (missing: ${missing.join(', ') || 'none'})`);
 
 process.stdout.write(failures.length === 0 ? '\nALL CHECKS PASSED\n' : `\n${failures.length} CHECK(S) FAILED\n`);
 process.exit(failures.length === 0 ? 0 : 1);

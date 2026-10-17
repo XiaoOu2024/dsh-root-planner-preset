@@ -8,10 +8,12 @@
   "exports": {
     ".": "./guard.js",
     "./guard": "./guard.js",
+    "./worker-mask": "./worker-mask.js",
     "./package.json": "./package.json"
   },
   "files": [
     "guard.js",
+    "worker-mask.js",
     "persona.txt",
     "child-tools.mjs",
     "build-patch.mjs",

@@ -144,6 +144,23 @@ check(existsSync(join(here, 'guard.js')), 'guard.js ships inside the package');
 }
 const delegationRows = delegation?.config ?? [];
 
+// DSH 0.2.1 removed `toolFilter` from the delegation tool. It does not warn: zod strips
+// the key and the child then runs the platform's DEFAULT preset, which is how a live child
+// ended up with all 39 tools and the wrong persona. The curated child toolset therefore
+// moved to two places at once — a worker preset (which decides the mounted tool plugins)
+// and `worker-mask` (which subtracts the app-level tools a preset cannot omit).
+const workerRow = inserted.find((row) => row.id === 'preset-root-planner-worker');
+check(workerRow !== undefined, 'the patch declares a worker preset');
+check(workerRow?.config?.id === 'root-planner-worker', 'the worker preset id is root-planner-worker');
+check(workerRow?.config?.order === 6, 'the worker preset order is 6');
+const workerPlugins = workerRow?.config?.plugins ?? [];
+check(
+  workerPlugins.some((row) => row.id === 'worker-mask' && row.name === 'dsh-root-planner-preset/worker-mask'),
+  'the worker preset mounts worker-mask (the tool restriction)',
+);
+const workerDelegation = workerPlugins.find((row) => row.id === 'delegation');
+const workerDelegationRows = workerDelegation?.config ?? [];
+
 // Loader row id -> the model-facing tool name that row publishes.
 const childTools = [
   { id: 'tool-subagent', toolName: 'subagent' },
@@ -152,43 +169,64 @@ const childTools = [
   const row = delegationRows.find((entry) => entry.id === id);
   check(row !== undefined, `delegation declares ${id}`);
   check(row?.config?.toolName === toolName, `${id} publishes the tool name ${toolName}`);
-  return { id, toolName, allow: row?.config?.toolFilter?.allow };
+  check(row?.config?.agentPreset === 'root-planner-worker', `${id} spawns into the worker preset`);
+  check(
+    row?.config?.toolFilter === undefined,
+    `${id} carries no toolFilter (DSH 0.2.1 removed it and strips it silently)`,
+  );
+  // A grandchild must land in the worker preset too, or the tree degrades at depth 2:
+  // the platform default persona and the full tool list come back one level down.
+  const nested = workerDelegationRows.find((entry) => entry.id === id);
+  check(nested?.config?.agentPreset === 'root-planner-worker', `worker ${id} spawns into the worker preset too`);
+  return { id, toolName };
 });
 
-// A subagent is a worker: it keeps the write and shell tools, so the mask must
-// only exclude what a mask can name and what would unbounded a child's process.
-for (const { id, allow } of childTools) {
-  check(Array.isArray(allow) && allow.length > 0, `${id} declares a non-empty allow list`);
-  check(allow?.includes('read'), `${id} mask keeps read`);
-  for (const worker of ['write', 'edit', 'ops_replace', 'pwsh']) {
-    check(allow?.includes(worker), `${id} mask keeps ${worker} (a subagent must be able to work)`);
-  }
-  for (const scoped of SCOPE_LOCAL_TOOLS) {
-    check(
-      !allow?.includes(scoped),
-      `${id} mask excludes the agent-scoped tool "${scoped}" (tools.restrict() would refuse it)`,
-    );
-  }
+// A subagent is a worker: the curated set keeps the write and shell tools.
+for (const worker of ['read', 'write', 'edit', 'ops_replace', 'pwsh']) {
+  check(CHILD_TOOLS.includes(worker), `the curated set keeps ${worker} (a subagent must be able to work)`);
+}
+for (const scoped of SCOPE_LOCAL_TOOLS) {
+  check(
+    !CHILD_TOOLS.includes(scoped),
+    `the curated set excludes the agent-scoped tool "${scoped}" (tools.restrict() would refuse it)`,
+  );
 }
 
-// "No unbounded process": with the shell tools present, the property lives in the
-// preset's own rows rather than in the mask.
-const pwshRow = plugins.find((row) => row.id === 'tool-pwsh');
-check(pwshRow !== undefined, 'the preset declares tool-pwsh');
-check(
-  pwshRow?.config?.enableRunInBackground === FORBIDDEN_CAPABILITIES.pwshConfig.enableRunInBackground,
-  `tool-pwsh sets enableRunInBackground=${FORBIDDEN_CAPABILITIES.pwshConfig.enableRunInBackground} ` +
-    `(found ${JSON.stringify(pwshRow?.config?.enableRunInBackground)}) — without it a subagent could detach a server`,
-);
+// "No unbounded process": with the shell tools present, the property lives in each
+// preset's own rows rather than in a mask — the worker needs it as much as the root.
+for (const [label, rows] of [
+  ['the root preset', plugins],
+  ['the worker preset', workerPlugins],
+]) {
+  const row = rows.find((entry) => entry.id === 'tool-pwsh');
+  check(row !== undefined, `${label} declares tool-pwsh`);
+  check(
+    row?.config?.enableRunInBackground === FORBIDDEN_CAPABILITIES.pwshConfig.enableRunInBackground,
+    `${label} sets enableRunInBackground=${FORBIDDEN_CAPABILITIES.pwshConfig.enableRunInBackground} ` +
+      `(found ${JSON.stringify(row?.config?.enableRunInBackground)}) — without it a subagent could detach a server`,
+  );
+}
 
 /**
  * The global tool inventory of the author's profile, captured from a runtime
  * error rather than hand-kept: `tools.restrict()` prints every known global tool
  * when it refuses a name. Replace this list with the equivalent line from your
  * own environment — it is what makes the check below meaningful.
+ *
+ * Provenance: transcribed on DSH 0.2.1-rc.2. The upgrade from 0.2.0-rc.2 added
+ * `working_directory`, the four `schedule_*` tools, `cordis_inspect_list`,
+ * `cordis_inspect_query` and `plugin_manager`; all are registered by profile-level tool
+ * packages, so they are global. None of them is in the child mask, which is the intended
+ * behaviour of an allow list — a new tool is invisible to children until it is named.
+ *
+ * Regenerate after a DSH upgrade: break the mask on purpose (add a bogus name), let the
+ * agent-creation error print the list, and transcribe it — `tools/extract-tool-inventory.mjs`
+ * reads exactly that line out of a session log.
  */
 const OBSERVED_GLOBAL_TOOLS = new Set([
   'ask_user_question',
+  'cordis_inspect_list',
+  'cordis_inspect_query',
   'create_goal',
   'edit',
   'exit_plan_mode',
@@ -204,10 +242,15 @@ const OBSERVED_GLOBAL_TOOLS = new Set([
   'ops_grep',
   'ops_inspect_local_file',
   'ops_replace',
+  'plugin_manager',
   'present',
   'pwsh',
   'read',
   'read_image',
+  'schedule_create',
+  'schedule_delete',
+  'schedule_list',
+  'schedule_update',
   'send_message',
   'skill',
   'subagent_fork',
@@ -216,30 +259,30 @@ const OBSERVED_GLOBAL_TOOLS = new Set([
   'web_fetch',
   'web_search',
   'workflow',
+  'working_directory',
   'write',
 ]);
 
 /**
- * Tools that are agent-scoped rather than global, so the mask can never name
- * them. `subagent` is the one this bundle ran into: with
- * `modelSelectionSettings: true` it is mounted inside each composed Agent's own
- * scope, and `tools.restrict()` accepts global names only.
+ * Tools that are agent-scoped rather than global, so `tools.restrict()` can never name
+ * them. `subagent` is the one this bundle ran into: with `modelSelectionSettings: true`
+ * it is mounted inside each composed Agent's own scope, and a restriction accepts global
+ * names only. The curated set is the source of truth now — the old per-call mask is gone.
  */
-for (const { id, allow } of childTools) {
-  const unknown = (allow ?? []).filter((name) => !OBSERVED_GLOBAL_TOOLS.has(name));
+{
+  const unknown = CHILD_TOOLS.filter((name) => !OBSERVED_GLOBAL_TOOLS.has(name));
+  const scoped = new Set(SCOPE_LOCAL_TOOLS);
+  const unexpected = unknown.filter((name) => !scoped.has(name));
   check(
-    unknown.length === 0,
-    `${id} mask names only tools the runtime reports as global` +
-      (unknown.length ? ` (not global: ${unknown.join(', ')})` : ''),
+    unexpected.length === 0,
+    `the curated set names only tools the runtime reports as global` +
+      (unexpected.length ? ` (not global: ${unexpected.join(', ')})` : ''),
   );
-  const missing = CHILD_TOOLS.filter((name) => !(allow ?? []).includes(name));
-  const extra = (allow ?? []).filter((name) => !CHILD_TOOLS.includes(name));
-  check(
-    missing.length === 0 && extra.length === 0,
-    `${id} mask matches child-tools.mjs (${CHILD_TOOLS.length} entries)` +
-      (missing.length ? ` — missing: ${missing.join(', ')}` : '') +
-      (extra.length ? ` — unexpected: ${extra.join(', ')}` : ''),
-  );
+  // `subagent` reaches a worker through the preset's own delegation row rather than the
+  // restriction, so it may legitimately sit in the curated set while being scope-local.
+  for (const name of unknown) {
+    check(scoped.has(name), `the only scope-local name in the curated set is declared as such (${name})`);
+  }
 }
 
 process.stdout.write(failures.length === 0 ? '\nALL CHECKS PASSED\n' : `\n${failures.length} CHECK(S) FAILED\n`);
