@@ -67,7 +67,9 @@ now fails if anyone declares it as a preset row again.
 
 One limitation survives, and it is worth knowing before you rely on this: a shell command
 can build a path at runtime (`$env:X` + `'..'`, a script that writes, a Here-String), and
-no argument scan can see it. Confining a child's shell properly would need a narrower
+no argument scan can see it. The command scan matches **drive-letter** paths, so on POSIX
+it detects nothing at all — the two CI cases for it are skipped there rather than pretending
+otherwise. Confining a child's shell properly would need a narrower
 sandbox write root, which DSH cannot give a child — `sandboxPolicy.resolve()` accepts only
 `{ session, mode }` and derives `workspaceRoot` from the immutable, inherited
 `session.header.cwd`. So keep the parent's check as the backstop:

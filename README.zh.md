@@ -49,7 +49,7 @@ of writing "...\report.md" directly.
 
 把守卫声明成**预设内的一行**可以只约束本预设，但那是先试过的做法：在真实会话上实测，它什么都注册不上——六步探针全部放行，而 composed 配置看起来完全正常。现在 `verify-patch.mjs` 会在有人把它改回预设行时直接失败。
 
-**还有一个限制必须知道**：shell 命令能在运行时拼出路径（`$env:X` 拼 `'..'`、脚本内部写、Here-String），参数扫描看不见。要真正关住子代理的 shell，需要给它一个更窄的沙箱写域，而 DSH 给不了——`sandboxPolicy.resolve()` 只接受 `{ session, mode }`，`workspaceRoot` 恒等于不可变、从父会话继承的 `session.header.cwd`。所以父 agent 的核验仍然是兜底：
+**还有一个限制必须知道**：shell 命令能在运行时拼出路径（`$env:X` 拼 `'..'`、脚本内部写、Here-String），参数扫描看不见。而且命令扫描只认**盘符路径**，所以在 POSIX 上它**什么也检测不到**——CI 里那两条用例在 Linux 上是**显式跳过**的，而不是假装通过。要真正关住子代理的 shell，需要给它一个更窄的沙箱写域，而 DSH 给不了——`sandboxPolicy.resolve()` 只接受 `{ session, mode }`，`workspaceRoot` 恒等于不可变、从父会话继承的 `session.header.cwd`。所以父 agent 的核验仍然是兜底：
 
 ```sh
 # 派活前
