@@ -144,20 +144,56 @@ check(existsSync(join(here, 'guard.js')), 'guard.js ships inside the package');
 }
 const delegationRows = delegation?.config ?? [];
 
-// DSH 0.2.1 removed `toolFilter` from the delegation tool. It does not warn: zod strips
-// the key and the child then runs the platform's DEFAULT preset, which is how a live child
-// ended up with all 39 tools and the wrong persona. The curated child toolset therefore
-// moved to two places at once — a worker preset (which decides the mounted tool plugins)
-// and `worker-mask` (which subtracts the app-level tools a preset cannot omit).
+// DSH 0.2.1 removed `toolFilter` from the delegation tool, and it does not warn: zod
+// strips the key and the child then runs the platform's DEFAULT preset. The worker's tool
+// set is now decided by which rows the worker preset mounts, because a preset's rows
+// register their tools in the agent scope while `tools.restrict()` filters GLOBAL tools
+// only ("restrictions intersect; scoped registrations remain visible"). A mask row was
+// tried first and failed at activation with:
+//   tools.restrict() names unknown global tools "read", "glob", "write", ...
+//   known global tools: ops_glob, ops_grep, ops_inspect_local_file, ops_replace,
+//                       working_directory
+// Those five are the entire global set on this machine; everything else a worker sees
+// comes from a row. So the assertions below are about rows, and they are two-sided:
+// required rows must exist, forbidden rows must not.
 const workerRow = inserted.find((row) => row.id === 'preset-root-planner-worker');
 check(workerRow !== undefined, 'the patch declares a worker preset');
 check(workerRow?.config?.id === 'root-planner-worker', 'the worker preset id is root-planner-worker');
 check(workerRow?.config?.order === 6, 'the worker preset order is 6');
 const workerPlugins = workerRow?.config?.plugins ?? [];
+const workerRowIds = new Set(workerPlugins.map((row) => row.id));
+
+/** Rows a worker needs: persona, the working tools, and delegation so the tree recurses. */
+const WORKER_REQUIRED_ROWS = [
+  'persona',
+  'agent-instructions',
+  'tool-pwsh',
+  'tool-fs',
+  'tool-fs-search',
+  'tool-skill',
+  'tool-web',
+  'tool-todo',
+  'tool-ask-user',
+  'delegation',
+];
+for (const id of WORKER_REQUIRED_ROWS) {
+  check(workerRowIds.has(id), `the worker preset mounts ${id}`);
+}
+
+/**
+ * Rows a worker must not have. Each one was in the root preset and not here: workflow
+ * orchestration, deliverables, job control, plan mode, plugin management. Anything that
+ * lets a worker outlive its task or re-plan the tree belongs to the root.
+ */
+const WORKER_FORBIDDEN_ROWS = ['tool-workflow', 'workflow-ptc', 'present', 'tool-jobs', 'tool-plugin-manager', 'planning'];
+for (const id of WORKER_FORBIDDEN_ROWS) {
+  check(!workerRowIds.has(id), `the worker preset does not mount ${id}`);
+}
 check(
-  workerPlugins.some((row) => row.id === 'worker-mask' && row.name === 'dsh-root-planner-preset/worker-mask'),
-  'the worker preset mounts worker-mask (the tool restriction)',
+  !workerPlugins.some((row) => /worker-mask/.test(String(row?.id)) || /worker-mask/.test(String(row?.name))),
+  'no mask row is mounted (a restriction cannot narrow a preset\'s own tools)',
 );
+
 const workerDelegation = workerPlugins.find((row) => row.id === 'delegation');
 const workerDelegationRows = workerDelegation?.config ?? [];
 
@@ -227,83 +263,12 @@ for (const [label, rows] of [
   );
 }
 
-/**
- * The global tool inventory of the author's profile, captured from a runtime
- * error rather than hand-kept: `tools.restrict()` prints every known global tool
- * when it refuses a name. Replace this list with the equivalent line from your
- * own environment — it is what makes the check below meaningful.
- *
- * Provenance: transcribed on DSH 0.2.1-rc.2. The upgrade from 0.2.0-rc.2 added
- * `working_directory`, the four `schedule_*` tools, `cordis_inspect_list`,
- * `cordis_inspect_query` and `plugin_manager`; all are registered by profile-level tool
- * packages, so they are global. None of them is in the child mask, which is the intended
- * behaviour of an allow list — a new tool is invisible to children until it is named.
- *
- * Regenerate after a DSH upgrade: break the mask on purpose (add a bogus name), let the
- * agent-creation error print the list, and transcribe it — `tools/extract-tool-inventory.mjs`
- * reads exactly that line out of a session log.
- */
-const OBSERVED_GLOBAL_TOOLS = new Set([
-  'ask_user_question',
-  'cordis_inspect_list',
-  'cordis_inspect_query',
-  'create_goal',
-  'edit',
-  'exit_plan_mode',
-  'get_goal',
-  'glob',
-  'grep',
-  'interrupt_agent',
-  'job_kill',
-  'job_list',
-  'job_output',
-  'list_agents',
-  'ops_glob',
-  'ops_grep',
-  'ops_inspect_local_file',
-  'ops_replace',
-  'plugin_manager',
-  'present',
-  'pwsh',
-  'read',
-  'read_image',
-  'schedule_create',
-  'schedule_delete',
-  'schedule_list',
-  'schedule_update',
-  'send_message',
-  'skill',
-  'subagent_fork',
-  'todo_write',
-  'update_goal',
-  'web_fetch',
-  'web_search',
-  'workflow',
-  'working_directory',
-  'write',
-]);
-
-/**
- * Tools that are agent-scoped rather than global, so `tools.restrict()` can never name
- * them. `subagent` is the one this bundle ran into: with `modelSelectionSettings: true`
- * it is mounted inside each composed Agent's own scope, and a restriction accepts global
- * names only. The curated set is the source of truth now — the old per-call mask is gone.
- */
-{
-  const unknown = CHILD_TOOLS.filter((name) => !OBSERVED_GLOBAL_TOOLS.has(name));
-  const scoped = new Set(SCOPE_LOCAL_TOOLS);
-  const unexpected = unknown.filter((name) => !scoped.has(name));
-  check(
-    unexpected.length === 0,
-    `the curated set names only tools the runtime reports as global` +
-      (unexpected.length ? ` (not global: ${unexpected.join(', ')})` : ''),
-  );
-  // `subagent` reaches a worker through the preset's own delegation row rather than the
-  // restriction, so it may legitimately sit in the curated set while being scope-local.
-  for (const name of unknown) {
-    check(scoped.has(name), `the only scope-local name in the curated set is declared as such (${name})`);
-  }
-}
+// The curated child toolset is not checkable against a static global inventory, and this
+// file must not pretend otherwise. In DSH 0.2.1 a preset row registers its tool in the
+// agent scope, and `tools.restrict()` filters GLOBAL tools only, so the names in
+// `child-tools.mjs` are not global names. What proves the toolset is the row list —
+// asserted above — plus one live run: spawn from a Root Planner session and read the
+// child's `request/header` with `node tools/extract-offered-tools.mjs <session-dir>`.
 
 process.stdout.write(failures.length === 0 ? '\nALL CHECKS PASSED\n' : `\n${failures.length} CHECK(S) FAILED\n`);
 process.exit(failures.length === 0 ? 0 : 1);

@@ -1,9 +1,23 @@
 /**
- * The child tool mask — the single source of truth shared by the generator and
- * the verifier, so the two cannot disagree about what a subagent may call.
+ * The expected worker toolset — the list this bundle wants a subagent to end up with, kept
+ * in one place so the intent is stated once.
  *
- * These are the only GLOBAL tools a subagent may call. Everything absent is
- * invisible to the child.
+ * ## It is no longer a runtime mask, and cannot be one
+ *
+ * Until DSH 0.2.0 this list was handed to `dsh-tool-subagent` as `toolFilter.allow`.
+ * 0.2.1 removed that field: zod strips it silently and the child then runs the platform's
+ * default preset. The replacement the error message names is a preset (`agentPreset`), so
+ * what a worker can call is decided by which rows the `root-planner-worker` preset mounts.
+ *
+ * A `tools.restrict()` stand-in was tried and cannot work either: a preset's rows register
+ * their tools in the agent scope, and a restriction filters GLOBAL tools only
+ * ("restrictions intersect; scoped registrations remain visible"). On this machine the
+ * globally mounted set is just `ops_glob`, `ops_grep`, `ops_inspect_local_file`,
+ * `ops_replace` and `working_directory`; everything else a worker sees comes from a row.
+ *
+ * So this file is the documented expectation, verified against a live session rather than
+ * asserted against a snapshot: `verify-patch.mjs` proves the worker preset's row list, and
+ * `tools/extract-offered-tools.mjs` reads what a real child was actually offered.
  *
  * ## What a subagent MAY do
  *
@@ -12,7 +26,7 @@
  * project cannot run tests, git, or a verification script, so every executable
  * step bounces back to the root and the parallelism the tree exists for buys
  * nothing. `write`, `edit`, `ops_replace`, `ops_bash` and `pwsh` are all in the
- * mask for that reason.
+ * list for that reason.
  *
  * ## What is forbidden, and how it is enforced
  *
