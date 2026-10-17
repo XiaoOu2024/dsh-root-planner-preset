@@ -170,8 +170,17 @@ export function apply(ctx, config = {}) {
   // Registered on the plugin's own context: a plain-context guard applies globally,
   // and the decision is made per call from `exec.agent`, so no per-agent wiring is
   // needed and no registration leaks when an agent is disposed.
+  //
+  // The service is read with `ctx.get` rather than `ctx.tools` on purpose: a missing
+  // service should leave the guard absent and silent, not throw inside the effect where
+  // the failure would look like a plugin that simply does nothing.
   ctx.effect(() => {
-    const dispose = ctx.tools.guard((exec) => {
+    const tools = typeof ctx.get === 'function' ? ctx.get('tools') : ctx.tools
+    if (tools === undefined) {
+      trace('no tools service — guard not registered')
+      return () => {}
+    }
+    const dispose = tools.guard((exec) => {
       const header = exec?.agent?.session?.header
       // Only delegated sessions are fenced: the root owns the workspace and must be
       // able to write anywhere in it, or it could not integrate a child's artifacts.

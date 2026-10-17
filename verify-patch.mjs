@@ -116,10 +116,15 @@ const delegation = plugins.find((row) => row.id === 'delegation');
 check(delegation?.group === true, 'delegation is a group row');
 
 // The workspace fence travels with the preset, so one install carries the protocol and
-// its enforcement. These assertions keep that promise honest: the row must exist, must
-// resolve to this package's own module, and must ship that module.
-const guardRow = plugins.find((row) => row.id === 'root-planner-guard');
-check(guardRow !== undefined, 'the preset mounts the workspace guard as its own row');
+// its enforcement. It must be a TOP-LEVEL insert, not a row inside `config.plugins`.
+//
+// That distinction is measured, not stylistic: while this guard was declared as a preset
+// row, a live six-step probe came back all-allowed — the row exists in the composed
+// config yet registers nothing that sees a tool call. As a sibling entry (the shape the
+// standalone guard bundle was proved in) one instance sees every call. The last check
+// here keeps a future refactor from quietly moving it back.
+const guardRow = inserted.find((row) => row.id === 'root-planner-guard');
+check(guardRow !== undefined, 'the patch inserts the workspace guard as a top-level entry');
 check(
   guardRow?.name === 'dsh-root-planner-preset/guard',
   `the guard row resolves to this package's subpath (found ${JSON.stringify(guardRow?.name)})`,
@@ -127,6 +132,10 @@ check(
 check(guardRow?.disabled !== true, 'the guard row is enabled');
 check(guardRow?.config?.directoryName === '_agents', 'the guard fences the _agents/ directory');
 check(guardRow?.config?.guardShell === true, 'the guard also applies the shell rules');
+check(
+  plugins.every((row) => row.id !== 'root-planner-guard'),
+  'the guard is NOT declared as a preset plugin row (that mount registers nothing)',
+);
 check(existsSync(join(here, 'guard.js')), 'guard.js ships inside the package');
 {
   const manifest = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'));

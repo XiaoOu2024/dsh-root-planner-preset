@@ -49,3 +49,10 @@ jobs:
 
       - name: Patch structure, persona byte-identity and the child tool mask
         run: node verify-patch.mjs
+
+      # The guard decides whether a delegated agent may write, so its boundary logic is
+      # asserted directly: a wrong "allow" here is a silent write into the parent's files.
+      - name: Workspace guard boundary
+        run: |
+          node --check guard.js
+          node test-guard.mjs
