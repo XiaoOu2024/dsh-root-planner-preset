@@ -166,15 +166,29 @@ if (dryRun) {
   //  * The output must be shown even on failure. The first version filtered it
   //    down to matching lines and printed a blank line when the command never
   //    ran, hiding the real problem behind a successful-looking step.
-  const published = run(PUBLISHER, ['publish', '--registry', OFFICIAL_REGISTRY, '--access', 'public'], {
-    allowFailure: true,
+  const publishRun = spawnSync(PUBLISHER, ['publish', '--registry', OFFICIAL_REGISTRY, '--access', 'public'], {
+    cwd: here,
+    env,
+    encoding: 'utf8',
     shell: true,
   });
+  const published = `${publishRun.stdout ?? ''}${publishRun.stderr ?? ''}`;
   const summary = published
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !/^Progress:|^Packages:|^\+?$/.test(line));
-  process.stdout.write(`${summary.map((line) => `  ${line}`).join('\n') || '  (the publisher printed nothing — treat that as a failure)'}\n`);
+  process.stdout.write(`${summary.map((line) => `  ${line}`).join('\n') || '  (the publisher printed nothing)'}\n`);
+  // Stop here on a failed publish. Continuing to the registry poll turned a network
+  // blip into ten minutes of waiting and then a confident but wrong diagnosis
+  // ("staged publishing?"), when the publish command had simply not run.
+  if (publishRun.status !== 0) {
+    const reason = publishRun.error ? `${publishRun.error.code}: ${publishRun.error.message}` : `exit ${publishRun.status}`;
+    throw new Error(
+      `the publisher failed (${reason}), so nothing was published and the registry check would only time out.\n` +
+        `Retry the publish by hand once the cause is clear:\n` +
+        `  ${PUBLISHER} publish --registry ${OFFICIAL_REGISTRY} --access public`,
+    );
+  }
 }
 
 // ── Confirm on the registry ──────────────────────────────────────────────────
