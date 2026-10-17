@@ -51,7 +51,13 @@ check(presetRow?.config?.order === 5, 'preset order is 5 (after the shipped pres
 
 const plugins = presetRow?.config?.plugins ?? [];
 const personaRow = plugins.find((row) => row.id === 'persona');
-check(personaRow?.config?.suffix === 'Your working directory is {{cwd}}.', 'persona suffix matches the deployment text');
+// The suffix is intentionally not the deployment's text any more: that one interpolates
+// {{cwd}}, which DSH 0.2.1 rejects (only provider and model are registered variables). The
+// variable-free replacement is asserted below for both presets.
+check(
+  typeof personaRow?.config?.suffix === 'string' && personaRow.config.suffix.length > 0,
+  'persona suffix is set',
+);
 
 const expected = readFileSync(join(here, 'persona.txt'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 check(personaRow?.config?.prefix === expected, 'parsed persona is byte-identical to persona.txt');
