@@ -17,7 +17,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              suffix: Your working directory is {{cwd}}.
+              suffix: Your working directory is the session workspace; call the working_directory tool to read its absolute path when you need it.
               prefix: |-
                 A task may be handled by a single agent or by a tree of agents. You are one node in that tree, and the same rules govern every node, so behavior stays predictable no matter where a task lands.
 
@@ -276,7 +276,7 @@
           - id: persona
             name: '@deepseek-ai/dsh-persona'
             config:
-              suffix: Your working directory is {{cwd}}.
+              suffix: Your working directory is the session workspace; call the working_directory tool to read its absolute path when you need it.
               prefix: |-
                 A task may be handled by a single agent or by a tree of agents. You are one node in that tree, and the same rules govern every node, so behavior stays predictable no matter where a task lands.
 

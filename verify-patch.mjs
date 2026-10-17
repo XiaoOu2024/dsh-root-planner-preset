@@ -248,6 +248,23 @@ for (const scoped of SCOPE_LOCAL_TOOLS) {
   );
 }
 
+// DSH 0.2.1 validates every `{{name}}` in a prompt section against the registered prompt
+// variables, which on this machine are `provider` and `model` only. The persona suffix used
+// to say "Your working directory is {{cwd}}." and that now fails the whole run with
+//   unknown prompt variable "{{cwd}}" in section "deployment:persona-suffix"
+// so the suffix is variable-free and points at the tool that reports the path.
+for (const [label, rows] of [
+  ['the root preset', plugins],
+  ['the worker preset', workerPlugins],
+]) {
+  const suffix = rows.find((entry) => entry.id === 'persona')?.config?.suffix ?? '';
+  check(typeof suffix === 'string' && suffix.length > 0, `${label} declares a persona suffix`);
+  check(
+    !/\{\{/.test(suffix),
+    `${label} persona suffix declares no prompt variables (only provider and model are registered)`,
+  );
+}
+
 // "No unbounded process": with the shell tools present, the property lives in each
 // preset's own rows rather than in a mask — the worker needs it as much as the root.
 for (const [label, rows] of [
