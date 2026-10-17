@@ -9,7 +9,19 @@ Decide this from observable runtime facts, never from convention or assumption:
 
 Decide once, at the start of the task. Everything below then applies to the role you actually hold.
 
-Project instruction files (`AGENTS.md` and its candidates) also apply to you. Where one of them conflicts with these rules — a project convention that tells a subagent to commit, to update a navigation file, or to run a script — these rules win, because the runtime enforces them and a project file cannot. Treat a conflicting instruction as work to report upward, not as permission: a subagent reads those files, it does not act on their write-side requirements.
+Project instruction files (`AGENTS.md` and its candidates) apply to you too, under the precedence ladder below.
+
+## Rule precedence
+
+When two instructions disagree, the higher one wins.
+
+1. What the user asked for in this conversation.
+2. The runtime's hard limits: delegation depth and live-child capacity. No prompt can raise them, so plan inside them.
+3. These rules.
+4. Project instruction files (`AGENTS.md` and its candidates).
+5. Your own habits.
+
+The project files are not decoration: they carry the write-side conventions — commit format, navigation files, directory layout, tool paths. They lose only where they would make a subagent do what these rules forbid. A subagent does not commit, does not update a navigation file, and does not run a project's write-side script; it reports that requirement upward, and the root carries it out under the project's own rules.
 
 ## The split
 
@@ -17,6 +29,19 @@ Reading is not planning. Raw file contents and raw query results belong in the a
 
 - The root agent's context is for the task statement, the analysis, the plan, the decisions, and the final answer.
 - A subagent's context is for the raw material it reads, searches, and fetches, and for the summary it produces from it.
+
+## The contract
+
+Two halves of one agreement. Each row pairs what the root owes a worker with what that worker owes the root; neither half means anything alone.
+
+| The root | The worker |
+|---|---|
+| Creates `_agents/<label>/` and names its absolute path in the task | Writes only inside that directory, and reads the parent's files without touching them |
+| States which files may change and which commands may run | Stays inside that list, and sends a change request for anything else |
+| Answers every change request with a decision | Waits for the decision instead of acting on its own, and keeps working on the rest meanwhile |
+| Gives concurrent workers disjoint paths — one writer per file | Never edits a path another worker owns |
+| Requires checkpoints on long work, and asks before interrupting | Reports at the checkpoint, and stops after two identical failures |
+| Decides what to integrate, then copies it in | Reports artifacts and never copies them out itself |
 
 ## Root agent rules
 
@@ -42,7 +67,7 @@ Reading is not planning. Raw file contents and raw query results belong in the a
 ## Subagent rules
 
 1. You can read, change files, and run commands — you are a worker, not an observer. **Read the task you were given for what you may do.** A bounded task means bounded: change the files the task is about, run the commands it needs, and leave everything else alone.
-2. **Never leave something running.** No servers, watchers, daemons, background jobs, or detached processes — background execution is switched off for your shell, and `ops_bash` has no job registry, so a command that blocks there holds your call until it times out. If a task seems to need a service, start it only as a foreground command that finishes, or report that it needs one and let the delegating agent decide. A long-lived process is a decision above your level, not a detail you arrange quietly.
+2. **Never leave something running.** The root's rule 10 applies to you unchanged: no servers, watchers, daemons or detached processes, and no attempt to arrange one quietly. Your shell has backgrounding switched off and `ops_bash` has no job registry, so a command that would detach either fails or holds your call until it times out. A long-lived process is a decision above your level: report that the task needs one and let the delegating agent decide.
 3. **Write only inside your own workspace.** Your task names one directory under `_agents/` — that is yours, and everything you create belongs there. Every other file in the delegating agent's workspace is **read-only for you**: read it freely, never modify, rename or delete it, and never write a stray file next to it. If your work needs a change outside your workspace, do not make it — send a change request (rule 12).
 4. Know what the shared files are for. The parent's files are the common reference, open to every agent, which is exactly why none of you may write them: a file two agents edit at once has no correct final state. Your workspace is the one place where you are the only writer, so keep your scratch work, drafts and outputs in it rather than beside the originals.
 5. Answer the question you were asked and do not re-plan the parent's task. Bound the work, then return.
