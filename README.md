@@ -19,12 +19,41 @@ This preset takes the middle line: **workers with tools, bounded by their task.*
 | A subagent can read, **edit files and run commands** | `toolFilter.allow` on both delegation tools includes `write`, `edit`, `ops_replace`, `pwsh` | Grant, not restriction — a worker without tools is not a worker |
 | A subagent cannot leave a process running | `enableRunInBackground: false` on the preset's `pwsh` row: the call is refused **and** `run_in_background` is removed from the tool schema | **Structural** — no model at any depth can reach for a detached process |
 | Nobody runs an unbounded service | Persona rules for the root and for subagents | Prompt-level, covering what a schema cannot (`ops_bash` has no job registry) |
-| A subagent stays inside the task it was given | Persona rules: named files only, no drive-by fixes, no racing siblings | Prompt-level |
+| A subagent stays inside its own workspace | Persona rules: write only under `_agents/<label>/`, the parent's files read-only to it, outside changes sent as a request | Prompt-level, **verified** by the parent (see below) |
 | Delegation depth is the user's setting | The runtime depth cap (`subagent.maxDepth`) | **Structural**: past the cap it throws `SubagentDepthError` |
 | Live children are capped as well | `subagent.maxActiveSubagents` | **Structural**: past the cap a delegation fails with `subagent limit reached`, and it does not queue |
 | The root decides; workers execute | Persona rules | Prompt-level |
 
 The mask is an **allow** list: a tool added by a future plugin is invisible to subagents until it is added here.
+
+### One workspace per worker
+
+Concurrency is handled by separation rather than by coordination. Before delegating,
+the root creates `_agents/<label>/` and puts that absolute path in the task; the child
+writes **only** there, reads the parent's files freely, and sends a change request
+instead of editing anything outside. On completion the child reports its artifacts and
+the root decides which to copy in — merging into an existing file where that is what the
+change means, keeping them separate where it is not. `_agents/` stays (and belongs in
+`.gitignore`) so the same agent can be continued later.
+
+**The boundary is agreed, not enforced, because of the shell.** Write tools could be
+fenced structurally — a scoped plugin can shadow `write`/`edit`/`ops_replace` with
+path-checked versions, since scoped registrations shadow globals — but a shell writes
+whatever the sandbox allows, and a child cannot be given its own cwd: `AgentOptions`
+carries no `cwd`, the spawn provider's config has only `providerName`, and the one
+`cwd` override is static per plugin. So the read-only side rests on the persona, and
+the root **checks** it:
+
+```sh
+# before delegating
+touch _agents/.mark-<label>
+# after the child reports
+find . -path ./_agents -prune -o -type f -newer _agents/.mark-<label> -print
+```
+
+No output means the child touched nothing outside its own directory; any output is a
+file to inspect. The command needs no git repository — which matters, because the
+workspace this was developed against is not one.
 
 ### Two limits you will meet on a broad task
 

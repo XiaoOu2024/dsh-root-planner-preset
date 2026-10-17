@@ -56,14 +56,28 @@ check(personaRow?.config?.suffix === 'Your working directory is {{cwd}}.', 'pers
 const expected = readFileSync(join(here, 'persona.txt'), 'utf8').replace(/\r\n/g, '\n').trimEnd();
 check(personaRow?.config?.prefix === expected, 'parsed persona is byte-identical to persona.txt');
 check(!personaRow?.config?.prefix?.includes('\t'), 'persona contains no tab characters');
-check(/read-only/.test(personaRow?.config?.prefix ?? '') === false, 'persona no longer claims subagents are read-only (they are workers with write and shell)');
+check(
+  /You can read, change files, and run commands/.test(personaRow?.config?.prefix ?? ''),
+  'persona states that a subagent is a worker with write and shell',
+);
+// The exact wrong sentence this bundle once shipped. A loose /read-only/ test is no
+// good now that the persona legitimately calls the PARENT's files read-only.
+check(
+  !/You are read-only, and this is structural/.test(personaRow?.config?.prefix ?? ''),
+  'persona does not claim subagents themselves are read-only',
+);
+check(
+  /Write only inside your own workspace/.test(personaRow?.config?.prefix ?? ''),
+  'persona confines a subagent to its own workspace',
+);
 check(
   /Never leave something running/.test(personaRow?.config?.prefix ?? ''),
   'persona forbids long-running processes for subagents',
 );
 
+
 /**
- * Rule count, asserted on purpose.
+ * Rule counts, asserted on purpose.
  *
  * Byte-identity above only proves the patch matches `persona.txt` in the working
  * tree. It says nothing about what was PUBLISHED: 1.1.6 shipped a package.json bump
@@ -71,10 +85,11 @@ check(
  * tree, so npm carried a 13-rule persona while the repository had 14. The byte check
  * could not see that, because both files agreed with each other.
  *
- * Update this number in the same commit as the rule it counts, so the release is the
- * act that carries it.
+ * Update these numbers in the same commit as the rule they count, so the release is
+ * the act that carries it.
  */
-const ROOT_RULE_COUNT = 16;
+const ROOT_RULE_COUNT = 18;
+const SUBAGENT_RULE_COUNT = 13;
 const rootSection = (personaRow?.config?.prefix ?? '').split('## Root agent rules')[1]?.split('## Subagent rules')[0] ?? '';
 const rootRules = [...rootSection.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
 check(
@@ -84,6 +99,17 @@ check(
 check(
   rootRules.every((value, index) => value === index + 1),
   `root rule numbering is 1..${rootRules.length} with no gaps or repeats (found ${rootRules.join(',')})`,
+);
+
+const subagentSection = (personaRow?.config?.prefix ?? '').split('## Subagent rules')[1]?.split('## When to pass work down')[0] ?? '';
+const subagentRules = [...subagentSection.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
+check(
+  subagentRules.length === SUBAGENT_RULE_COUNT,
+  `persona carries ${SUBAGENT_RULE_COUNT} subagent rules (found ${subagentRules.length})`,
+);
+check(
+  subagentRules.every((value, index) => value === index + 1),
+  `subagent rule numbering is 1..${subagentRules.length} with no gaps or repeats (found ${subagentRules.join(',')})`,
 );
 
 const delegation = plugins.find((row) => row.id === 'delegation');
