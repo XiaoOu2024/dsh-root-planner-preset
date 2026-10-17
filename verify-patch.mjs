@@ -74,7 +74,7 @@ check(
  * Update this number in the same commit as the rule it counts, so the release is the
  * act that carries it.
  */
-const ROOT_RULE_COUNT = 14;
+const ROOT_RULE_COUNT = 16;
 const rootSection = (personaRow?.config?.prefix ?? '').split('## Root agent rules')[1]?.split('## Subagent rules')[0] ?? '';
 const rootRules = [...rootSection.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
 check(
