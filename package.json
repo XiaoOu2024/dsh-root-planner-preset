@@ -1,10 +1,32 @@
 {
   "name": "dsh-root-planner-preset",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "type": "module",
-  "description": "DSH agent preset that outsources file reading to strictly read-only subagents, while the root agent keeps the plan and owns every file mutation.",
+  "description": "DSH agent preset: the root agent plans and decides, subagent workers read, write and run commands inside their own _agents/ workspace, and nothing outlives its task.",
   "license": "MIT",
   "author": "XiaoOu2024",
+  "exports": {
+    ".": "./guard.js",
+    "./guard": "./guard.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "guard.js",
+    "persona.txt",
+    "child-tools.mjs",
+    "build-patch.mjs",
+    "verify-patch.mjs",
+    "verify-depth-override.mjs",
+    "lib-yaml.mjs",
+    "release.mjs",
+    "cordis.patch.yml",
+    "tools/",
+    "docs/",
+    "README.md",
+    "README.zh.md",
+    "INSTALL.md",
+    "LICENSE"
+  ],
   "homepage": "https://github.com/XiaoOu2024/dsh-root-planner-preset#readme",
   "repository": {
     "type": "git",
@@ -20,7 +42,8 @@
     "cordis",
     "subagent",
     "delegation",
-    "read-only"
+    "workspace-isolation",
+    "guard"
   ],
   "dsh": {
     "bundle": {

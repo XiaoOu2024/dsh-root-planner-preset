@@ -9,7 +9,7 @@
 //
 // Usage: node verify-patch.mjs
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHILD_TOOLS, FORBIDDEN_CAPABILITIES, SCOPE_LOCAL_TOOLS } from './child-tools.mjs';
@@ -114,6 +114,25 @@ check(
 
 const delegation = plugins.find((row) => row.id === 'delegation');
 check(delegation?.group === true, 'delegation is a group row');
+
+// The workspace fence travels with the preset, so one install carries the protocol and
+// its enforcement. These assertions keep that promise honest: the row must exist, must
+// resolve to this package's own module, and must ship that module.
+const guardRow = plugins.find((row) => row.id === 'root-planner-guard');
+check(guardRow !== undefined, 'the preset mounts the workspace guard as its own row');
+check(
+  guardRow?.name === 'dsh-root-planner-preset/guard',
+  `the guard row resolves to this package's subpath (found ${JSON.stringify(guardRow?.name)})`,
+);
+check(guardRow?.disabled !== true, 'the guard row is enabled');
+check(guardRow?.config?.directoryName === '_agents', 'the guard fences the _agents/ directory');
+check(guardRow?.config?.guardShell === true, 'the guard also applies the shell rules');
+check(existsSync(join(here, 'guard.js')), 'guard.js ships inside the package');
+{
+  const manifest = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'));
+  check(manifest.exports?.['./guard'] === './guard.js', 'package.json exports ./guard');
+  check((manifest.files ?? []).includes('guard.js'), 'guard.js is in the published files list');
+}
 const delegationRows = delegation?.config ?? [];
 
 // Loader row id -> the model-facing tool name that row publishes.

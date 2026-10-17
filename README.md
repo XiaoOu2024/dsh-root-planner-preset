@@ -36,25 +36,20 @@ the root decides which to copy in — merging into an existing file where that i
 change means, keeping them separate where it is not. `_agents/` stays (and belongs in
 `.gitignore`) so the same agent can be continued later.
 
-**Install the companion guard to make that boundary a real refusal.** The persona is a
-rule, not a fence: a subagent has a shell, so it *can* write into your workspace. The
-guard plugin
-([dsh-root-planner-guard](https://github.com/XiaoOu2024/dsh-root-planner-guard)) refuses
-the call instead:
-
-```sh
-dsh plugin --profile web add dsh-root-planner-guard --registry https://registry.npmjs.org/
-```
-
-It refuses a `write`, `edit` or `ops_replace` whose target resolves outside
-`<workspace>/_agents/`, and refuses a shell call whose `workdir` is outside it or whose
-command names an absolute path into your files:
+**The boundary is enforced, not just agreed.** This preset ships the fence as its own
+plugin row (`dsh-root-planner-preset/guard`), so one install carries the protocol and its
+enforcement together. It refuses a `write`, `edit` or `ops_replace` whose target resolves
+outside `<workspace>/_agents/`, and refuses a shell call whose `workdir` is outside it or
+whose command names an absolute path into your files:
 
 ```
 write: outside your workspace. You may write only inside "...\_agents"; everything else
 in the parent's directory is read-only to you. Send your parent a change request instead
 of writing "...\report.md" directly.
 ```
+
+The root session is never fenced: it owns the workspace and has to be able to write
+anywhere in it to integrate a child's artifacts.
 
 One limitation survives, and it is worth knowing before you rely on this: a shell command
 can build a path at runtime (`$env:X` + `'..'`, a script that writes, a Here-String), and

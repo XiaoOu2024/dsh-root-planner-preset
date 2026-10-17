@@ -44,20 +44,25 @@ dsh plugin --profile web add dsh-root-planner-preset
 
 > 也可以钉版本：`dsh plugin --profile web add dsh-root-planner-preset@1.0.0`
 
-### 配套：子代理工作区守卫（强烈建议）
+### 已内置：子代理工作区围栏
 
-预设规定子代理只写 `_agents/` 下的自己的目录，但**规定不是围栏**——子代理有 shell，它有能力写进你的工作区。守卫插件把这条边界变成**真正的拒绝**：
+预设自带一个守卫行，**不需要另装**。它把"子代理只写自己的 `_agents/` 目录"从人设规定变成**调用级拒绝**：
 
-```sh
-dsh plugin --profile web add dsh-root-planner-guard --registry https://registry.npmjs.org/
+- 子代理 `write` / `edit` / `ops_replace` 的目标路径落在 `_agents/` 之外 → **调用被拒，代码根本没跑**；
+- 子代理的 shell 调用 `workdir` 不在工作区内、或命令里写着指向你文件的绝对路径 → **被拒**；
+- 根 agent **不受限制**（它必须能在自己工作区任意位置写，才能把产物并入）。
+
+被告拒时它收到的是一句说明边界的错误，例如：
+
+```
+write: outside your workspace. You may write only inside "...\_agents"; everything else
+in the parent's directory is read-only to you. Send your parent a change request instead
+of writing "...\report.md" directly.
 ```
 
-- npm 包：<https://www.npmjs.com/package/dsh-root-planner-guard>，源码：<https://github.com/XiaoOu2024/dsh-root-planner-guard>
-- **必须重启 `dsh web` 才生效**：运行期间装上的插件不会加载新的模块代。
-- 它是 **profile 级 bundle，不是预设行**（预设行挂在每个 agent 作用域里，而这里需要全局一个实例），所以 `add` 预设**不会**自动带来它，要单独加。
-- 装上之后：子代理写 `_agents/` 之外的文件、或者 `pwsh` 不带 workdir（默认就是你的工作目录），都会被**直接拒绝**并收到一条说明边界的错误。
+**一个仍然存在的限制**：shell 命令能在运行时拼出路径（`$env:X` 拼 `'..'`、脚本内部写、Here-String），参数扫描看不见。要真正关住子代理的 shell 需要给它更窄的沙箱写域，而 DSH 给不了（`sandboxPolicy.resolve()` 只接受 `{session, mode}`，`workspaceRoot` 恒等于不可变的会话 cwd）。所以父 agent 的时间戳核验仍是兜底——人设里已经写了。
 
-> 机器上配的是镜像源时 `--registry` 那个参数不能省：pnpm 的供应链校验会读镜像的 manifest，而镜像滞后时会把已发布的版本报成"不存在"。
+> 守卫以**预设行**形式挂载，所以只有用 `root-planner` 预设的 agent 才受约束：`_agents/` 这套约定只有这个预设的人设定义过。
 
 ### 方式 2：GitHub 源码
 
