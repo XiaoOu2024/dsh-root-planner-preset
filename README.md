@@ -36,11 +36,11 @@ the root decides which to copy in — merging into an existing file where that i
 change means, keeping them separate where it is not. `_agents/` stays (and belongs in
 `.gitignore`) so the same agent can be continued later.
 
-**The boundary is enforced, not just agreed.** This preset ships the fence as its own
-plugin row (`dsh-root-planner-preset/guard`), so one install carries the protocol and its
-enforcement together. It refuses a `write`, `edit` or `ops_replace` whose target resolves
-outside `<workspace>/_agents/`, and refuses a shell call whose `workdir` is outside it or
-whose command names an absolute path into your files:
+**The boundary is enforced, not just agreed.** This preset's package also ships the fence
+as a profile-level entry (`dsh-root-planner-preset/guard`), so one install carries the
+protocol and its enforcement together. It refuses a `write`, `edit` or `ops_replace` whose
+target resolves outside `<workspace>/_agents/`, and refuses a shell call whose `workdir` is
+outside it or whose command names an absolute path into your files:
 
 ```
 write: outside your workspace. You may write only inside "...\_agents"; everything else
@@ -50,6 +50,20 @@ of writing "...\report.md" directly.
 
 The root session is never fenced: it owns the workspace and has to be able to write
 anywhere in it to integrate a child's artifacts.
+
+**Being profile-level, it fences every delegated agent in this profile** — including
+subagents under a different preset, which were never told about `_agents/`. If that matters
+on your machine, turn the entry off in your profile patch:
+
+```yaml
+- id: root-planner-guard
+  disabled: true
+```
+
+Declaring the guard as a row *inside* the preset would scope it to this preset only, and
+that was tried first: measured against a live session it registered nothing — six probe
+steps all came back allowed while the composed config looked correct. `verify-patch.mjs`
+now fails if anyone declares it as a preset row again.
 
 One limitation survives, and it is worth knowing before you rely on this: a shell command
 can build a path at runtime (`$env:X` + `'..'`, a script that writes, a Here-String), and

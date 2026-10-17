@@ -62,7 +62,14 @@ of writing "...\report.md" directly.
 
 **一个仍然存在的限制**：shell 命令能在运行时拼出路径（`$env:X` 拼 `'..'`、脚本内部写、Here-String），参数扫描看不见。要真正关住子代理的 shell 需要给它更窄的沙箱写域，而 DSH 给不了（`sandboxPolicy.resolve()` 只接受 `{session, mode}`，`workspaceRoot` 恒等于不可变的会话 cwd）。所以父 agent 的时间戳核验仍是兜底——人设里已经写了。
 
-> 守卫以**预设行**形式挂载，所以只有用 `root-planner` 预设的 agent 才受约束：`_agents/` 这套约定只有这个预设的人设定义过。
+> 守卫是以**profile 级条目**挂载的（不是预设内的一行）。这意味着它约束**这个 profile 里的每个被委派 agent**——包括用着别的预设、从没被告知 `_agents/` 的子代理。如果你在同一个 profile 里也用别的预设加子代理，可以在 profile 补丁里关掉它：
+>
+> ```yaml
+> - id: root-planner-guard
+>   disabled: true
+> ```
+>
+> 为什么不做成预设行（那样就只约束本预设）？试过了，**实测不生效**：配置里那一行存在且看起来正常，但真实会话上六步探针全部放行。所以 `verify-patch.mjs` 现在会在有人改回预设行时直接失败。
 
 ### 方式 2：GitHub 源码
 

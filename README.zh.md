@@ -30,7 +30,7 @@
 
 并发问题是用**隔离**解决的，不是用协调。派活之前，根创建 `_agents/<label>/` 并把**绝对路径**写进任务；子代理**只往那里写**，父目录的文件随便读，要改就发申请。完成后它报告产物清单，由根决定复制哪些进自己的工作区——该合并进现有文件的就合并，该保持独立的就独立。`_agents/` 会保留（并应进 `.gitignore`），以便日后继续使用同一个子代理。
 
-**这条边界是强制执行的，不只是约定。** 预设自带围栏（自己的插件行 `dsh-root-planner-preset/guard`），一次安装同时得到协议和它的执行。它拒绝目标落在 `<工作区>/_agents/` 之外的 `write`、`edit`、`ops_replace`；也拒绝 `workdir` 在工作区之外的 shell 调用，以及命令里写着你文件的绝对路径：
+**这条边界是强制执行的，不只是约定。** 预设所在的包同时提供围栏，作为一条**profile 级条目**（`dsh-root-planner-preset/guard`），一次安装同时得到协议和它的执行。它拒绝目标落在 `<工作区>/_agents/` 之外的 `write`、`edit`、`ops_replace`；也拒绝 `workdir` 在工作区之外的 shell 调用，以及命令里写着你文件的绝对路径：
 
 ```
 write: outside your workspace. You may write only inside "...\_agents"; everything else
@@ -40,7 +40,16 @@ of writing "...\report.md" directly.
 
 根会话**不受围栏限制**——它必须能在自己工作区任意位置写，才能把子代理的产物并入。
 
-**有一个限制必须知道**：shell 命令能在运行时拼出路径（`$env:X` 拼 `'..'`、脚本内部写、Here-String），参数扫描看不见。要真正关住子代理的 shell，需要给它一个更窄的沙箱写域，而 DSH 给不了——`sandboxPolicy.resolve()` 只接受 `{ session, mode }`，`workspaceRoot` 恒等于不可变、从父会话继承的 `session.header.cwd`。所以父 agent 的核验仍然是兜底：
+**因为它是 profile 级的，它约束这个 profile 里的每个被委派 agent**——包括用着别的预设、从没被告知 `_agents/` 的子代理。如果这会影响到你，在 profile 补丁里把这条关掉：
+
+```yaml
+- id: root-planner-guard
+  disabled: true
+```
+
+把守卫声明成**预设内的一行**可以只约束本预设，但那是先试过的做法：在真实会话上实测，它什么都注册不上——六步探针全部放行，而 composed 配置看起来完全正常。现在 `verify-patch.mjs` 会在有人把它改回预设行时直接失败。
+
+**还有一个限制必须知道**：shell 命令能在运行时拼出路径（`$env:X` 拼 `'..'`、脚本内部写、Here-String），参数扫描看不见。要真正关住子代理的 shell，需要给它一个更窄的沙箱写域，而 DSH 给不了——`sandboxPolicy.resolve()` 只接受 `{ session, mode }`，`workspaceRoot` 恒等于不可变、从父会话继承的 `session.header.cwd`。所以父 agent 的核验仍然是兜底：
 
 ```sh
 # 派活前
