@@ -18,7 +18,7 @@ This preset takes the middle line: **workers with tools, bounded by their task.*
 
 | Requirement | Mechanism | Strength |
 |---|---|---|
-| A subagent can read, **edit files and run commands** | `toolFilter.allow` on both delegation tools includes `write`, `edit`, `ops_replace`, `pwsh` | Grant, not restriction — a worker without tools is not a worker |
+| A subagent can read, **edit files and run commands** | The `root-planner-worker` preset mounts `tool-fs`, `tool-pwsh`, `tool-web` and the delegation rows; every delegation spawns into that preset by name | Grant by construction — a worker without tools is not a worker |
 | A subagent cannot leave a process running | `enableRunInBackground: false` on the preset's `pwsh` row: the call is refused **and** `run_in_background` is removed from the tool schema | **Structural** — no model at any depth can reach for a detached process |
 | Nobody runs an unbounded service | Persona rules for the root and for subagents | Prompt-level, covering what a schema cannot (`ops_bash` has no job registry) |
 | A subagent stays inside its own workspace | Persona rules: write only under `_agents/<label>/`, the parent's files read-only to it, outside changes sent as a request | Prompt-level, **verified** by the parent (see below) |
@@ -26,7 +26,9 @@ This preset takes the middle line: **workers with tools, bounded by their task.*
 | Live children are capped as well | `subagent.maxActiveSubagents` | **Structural**: past the cap a delegation fails with `subagent limit reached`, and it does not queue |
 | The root decides; workers execute | Persona rules | Prompt-level |
 
-The mask is an **allow** list: a tool added by a future plugin is invisible to subagents until it is added here.
+The worker's toolset is an **allow list by construction**: a tool exists for a worker only if the worker preset mounts the plugin that provides it. A tool added by a future plugin — or by the app — is invisible to workers until a row is added here.
+
+One caveat, measured rather than assumed: a small number of tools are registered **globally** by the Host and cannot be removed by any preset. On 0.2.1-rc.2 those were `ops_glob`, `ops_grep`, `ops_inspect_local_file`, `ops_replace` (from the `dsh-ops` plugin) and `working_directory`. A worker sees them whatever this package does; the curated set below is what the rows add on top.
 
 ### One workspace per worker
 
@@ -110,26 +112,27 @@ root agent  ──delegates──▶  subagent  ──delegates──▶  … un
    └── decides, integrates, and states what each worker may touch
 ```
 
-Two mechanisms decide how deep the tree goes, and they pull in the same direction:
+Two mechanisms decide what a worker gets and how far the tree goes, and they pull in the
+same direction:
 
-- **The mask** gives *every* subagent, at *every* level, the same working set — read,
-  write, shell — and withholds the same things. The grant does not weaken with
-  depth, and neither does the bound.
+- **The worker preset** gives *every* subagent, at *every* level, the same working set —
+  read, write, shell — and withholds the same things, because each level spawns into the
+  same preset. The grant does not weaken with depth, and neither does the bound.
 - **The depth cap** (`subagent.maxDepth`, a Host setting you control) decides how
   many levels exist. `2` means root → child → grandchild; raise it and the tree
   deepens, set it to `1` and children become leaves.
 
-A `toolFilter` is a mask of **global** tools, and `subagent` is not one: with
-`modelSelectionSettings: true` it is mounted inside each composed Agent's own
-scope, so a mask can never name it. That is why it is absent from
-`child-tools.mjs` — **not** because children lack it. Scoped registrations stay
-visible through a restriction, and every child inherits this preset, so each level
-gets its own `subagent` and can delegate onward until the depth cap stops it.
+Both delegation rows carry `agentPreset: root-planner-worker`, and so do the two rows
+*inside* that preset — which is what makes the tree recursive rather than one level deep.
+One row deliberately does not: `subagent_fork` takes no `agentPreset`, because the fork
+provider declares `inheritsParentContext: true` and `agentPreset: false`, and configuring
+one for it makes the row throw at activation. A forked child therefore inherits its
+parent's preset; from a worker that is still the worker preset, from the root it is the
+root preset. That asymmetry is the price of the fork provider's design, not an oversight.
 
-An earlier version of this bundle did list `subagent` in the mask, and **every
-subagent creation failed** with
-`tools.restrict() names unknown global tool "subagent"` — the mask rejecting a
-name it could never legally contain, not the tool being missing.
+Until 0.2.1 this section described a `toolFilter` mask instead. That field was removed in
+0.2.1 along with the mechanism behind it: zod strips it silently, and children then run
+the platform's default preset. `verify-patch.mjs` fails if it reappears.
 
 - **Root agent**: plans first (goal, success criteria, constraints, ordered task list), dispatches work that is heavy enough to be worth the round trip, keeps the integration and the decisions, and states in every delegation which files may be touched.
 - **Subagent**: does the task — reads, edits the files it was given, runs the commands that belong to it — and reports the conclusion with the minimum evidence, plus exactly what it changed.
@@ -174,30 +177,34 @@ Then **start a new session** and pick **Root Planner** in the preset selector. F
 | `cordis.patch.yml` | The preset declaration (**generated — do not hand-edit**) |
 | `persona.txt` | The persona prose; **edit this one** |
 | `build-patch.mjs` | Generates `cordis.patch.yml` from `persona.txt` |
-| `verify-patch.mjs` | Checks patch structure and the tool mask, and asserts byte identity of the persona |
+| `verify-patch.mjs` | Checks patch structure, the worker preset's row list, the guard's wiring, the persona's byte identity and the declared `engines.dsh` |
 | `verify-depth-override.mjs` | Checks that the depth override reached the composed profile |
 | `lib-yaml.mjs` | Resolves a YAML parser from the local DSH install, so this package has **no dependencies** |
 | `docs/DEVELOPMENT.md` | Maintainer notes: design trade-offs, mechanics, verified/unverified boundaries |
 
 ## Verified / not verified
 
-**Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; both delegation masks exclude every mutation entry point and name only tools the runtime reports as global; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check); the depth override reached the composed profile.
+**Verified**: the patch parses as loader YAML; the parsed persona is **byte-identical** to `persona.txt`; the worker preset mounts exactly the rows it should and none of the root-only ones; both delegation rows name the worker preset and neither carries a removed `toolFilter`; the guard is a top-level entry that ships inside the package; the declared `engines.dsh` exists and is an inclusive floor; a clean checkout passes verification (`.gitattributes` pins LF, without which a Windows clone breaks the byte-identity check).
 
-**Verified end to end on a real task** — a 24-descendant run over a large reverse-engineering directory tree. Every line below was read from the session logs' own persisted tool schemas, which are the registry's output rather than a model's recollection:
+**Verified end to end on a real task**, on two DSH versions. Every line below was read from the session logs' own persisted tool schemas — the registry's output, not a model's recollection:
 
 | Property | Evidence |
 |---|---|
-| The mask reaches every child | The root is offered **31** tools; depth-1 and depth-2 agents are offered **25**. The difference is exactly the six the mask omits: `workflow`, `present`, `job_output`, `job_list`, `job_kill`, `exit_plan_mode`. |
+| The worker preset reaches every child | On 0.2.1-rc.2 a root-planner session spawned 4 children and each was offered **26** tools against the platform default's **39**; the 13 absent ones are exactly the root-only rows (`workflow`, `present`, `job_*`, `plugin_manager`, `schedule_*`, `cordis_inspect_*`, `exit_plan_mode`). Earlier, under the pre-0.2.1 mask, the same comparison measured 31 root / 25 child — the same idea, one mechanism earlier. |
 | Subagents really are workers | `write`, `edit`, `ops_replace` and `pwsh` are present at every depth and were used: 10 `write` and 60 `edit` from the root, 14 `write` from one depth-1 agent, 20 `write` from a depth-2 agent. |
 | No subagent can leave a process running | `run_in_background` is absent from the `pwsh` schema at all three depths. (A naive log search says otherwise — the phrase also occurs in `ops_bash`'s own description, which is why `tools/check-pwsh-background.mjs` inspects the schema window instead.) |
 | Recursion works | 12 direct children, 4 of which delegated onward to 12 grandchildren; the root itself made 14 `subagent` calls. |
 | The depth cap holds | The tree stops at depth 2; no depth-3 session exists anywhere in the log directory. |
 | The live-child cap is soft, not fatal | One `subagent limit reached (active child limit: 8)` during an 8-wide fan-out. Settlements returned slots as children finished, and every later delegation succeeded. |
+| The write fence is real | A child's write outside `_agents/` is refused with `write: outside your workspace.` and the file is **not** created; the same call inside `_agents/` succeeds. Re-checked after the standalone guard bundle was uninstalled, because the fence now ships only in this package. |
 
-**Corrected after the fact**: an earlier version of this file claimed the mask made
-children leaf agents. It does not. `subagent` is registered per composed agent rather
-than globally, so the mask can never name it — and because a restriction filters
-globals only, a child keeps it. Recursion is bounded by `maxDepth`, not by the mask.
+**Corrected twice, and both corrections are why the layout looks like this.** An early
+version claimed the mask made children leaf agents; it does not, and recursion is bounded
+by `maxDepth`. Then DSH 0.2.1 removed the mask mechanism altogether: `toolFilter` is now
+stripped silently, so this package moved the working set into a second preset and selects
+it with `agentPreset`. A stopgap that kept a `tools.restrict()` row failed for a different
+reason — a restriction filters global tools only, and a preset's own rows register in the
+agent's scope.
 
 **How to check it yourself**: `tools/verify-session.mjs` proves which preset each
 session ran and at what depth, but it does not read tool schemas. Use
@@ -212,7 +219,7 @@ Issues and pull requests are welcome — this repository is meant to be maintain
 Useful contributions, roughly in order of value:
 
 - **Report what broke**, with the error text and your DSH version. The unverified area above is exactly where real reports matter most.
-- **Report a mask mismatch** on your platform: which global tools your profile registers and which name the mask got wrong.
+- **Report a toolset mismatch** on your platform: the tools a worker is offered, and which ones your profile registers globally — those cannot be removed by this package.
 - **Improve the persona** (`persona.txt`) — but run `node build-patch.mjs && node verify-patch.mjs` and include the result, since `cordis.patch.yml` is generated and a hand-edited one will be rejected.
 - **Translate or fix the docs** — [README.zh.md](README.zh.md) and [INSTALL.md](INSTALL.md).
 

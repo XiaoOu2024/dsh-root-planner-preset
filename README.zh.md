@@ -18,7 +18,7 @@
 
 | 要求 | 机制 | 强度 |
 |---|---|---|
-| 子代理能读、**能改文件、能跑命令** | 两个委派工具的白名单**包含** `write`、`edit`、`ops_replace`、`pwsh` | 这是授予而非限制——没有工具的工人不算工人 |
+| 子代理能读、**能改文件、能跑命令** | `root-planner-worker` 预设挂了 `tool-fs`、`tool-pwsh`、`tool-web` 与委派行；每次委派都按名字进这个预设 | 由构造方式授予——没有工具的工人不算工人 |
 | 子代理不能留下运行中的进程 | 预设的 `pwsh` 行设 `enableRunInBackground: false`：后台调用被拒，**且 `run_in_background` 参数被从工具 schema 里移除** | **结构性**——任何深度的模型都够不到"脱离进程"这个能力 |
 | 谁都不跑无界服务 | 根与子代理的人设规则 | 提示词级，覆盖 schema 管不到的部分（`ops_bash` 没有任务注册表） |
 | 子代理只在自己的工作区里写 | 人设规则：只写 `_agents/<label>/` 之下，父目录文件对它只读，越界改动以申请形式提交 | 提示词级，由父 agent **核验**（见下） |
@@ -26,7 +26,9 @@
 | 在世子代理数也有上限 | `subagent.maxActiveSubagents` | **结构性**：超过上限时委派直接失败并报 `subagent limit reached`，**不会排队** |
 | 根决策、工人执行 | 人设规则 | 提示词级 |
 
-白名单是 **allow 而非 deny**：将来某个插件新增的工具，对子代理默认不可见。
+子代理的工具集是**由构造决定的 allow 列表**：只有 worker 预设挂了提供该工具的插件，子代理才有那个工具。将来某个插件（或 Host 本身）新增的工具，对子代理默认不可见，除非在这里加一行。
+
+有一条**实测得来**的例外：少数工具由 Host **全局注册**，任何预设都删不掉。0.2.1-rc.2 上是 `ops_glob`、`ops_grep`、`ops_inspect_local_file`、`ops_replace`（来自 `dsh-ops` 插件）和 `working_directory`。子代理无论如何都会看到它们；本包的行清单是在此之上**额外**加入的工具。
 
 ### 一个工人一个工作区
 
@@ -77,14 +79,16 @@ find . -path ./_agents -prune -o -type f -newer _agents/.mark-<label> -print
    └── 决策、集成、把关；每一层都拿同一套工具，也受同一条边界
 ```
 
-有两个机制决定树有多深，方向一致：
+有两个机制决定子代理拿到什么、以及树能有多深，方向一致：
 
-- **白名单**给**每一层**、**每一个**子代理同一套工作集（读、写、shell），也扣掉同样几样。授予不随深度衰减，边界也不衰减。
+- **worker 预设**给**每一层**、**每一个**子代理同一套工作集（读、写、shell），也扣掉同样几样——因为每一层都按名字进同一个预设。授予不随深度衰减，边界也不衰减。
 - **深度上限**（`subagent.maxDepth`，由你控制的 Host 设置）决定有几层。`2` 就是根 → 子 → 孙；调大则更深，设成 `1` 则子代理变叶子。
 
-`toolFilter` 是**全局**工具的掩码，而 `subagent` 不是全局工具：因为 `modelSelectionSettings: true`，它被注册进每个被组合 Agent **自身的作用域**，掩码永远写不上它的名字。所以它不在 `child-tools.mjs` 里——**不是**因为子代理没有它。作用域注册**不受限制影响**，而每个子代理都继承本预设，于是每一层都拿到自己的 `subagent`，可以一直往下派到深度上限为止。
+两个委派行都带 `agentPreset: root-planner-worker`，**worker 预设内部的那两个委派行也带**——这才是树能递归、而不是只深一层的原因。
 
-本包早期版本确实把 `subagent` 写进了白名单，结果是**每一次子代理创建都失败**，报 `tools.restrict() names unknown global tool "subagent"`——那是白名单在拒绝一个它永远不可能合法包含的名字，不是工具缺失。
+有一行**故意不带**：`subagent_fork`。fork 提供方声明 `inheritsParentContext: true`、`agentPreset: false`，给它配预设会让该行在激活时抛错。所以 fork 出来的子代理**继承父代理的预设**：从 worker fork 仍是 worker，从根 fork 就拿到根预设。这是 fork 提供方的设计代价，不是疏漏。
+
+0.2.1 之前，这一节讲的是 `toolFilter` 掩码。那个字段在 0.2.1 被移除，机制也一起没了：zod 会**静默剥除**它，子代理随后跑平台默认预设。现在它若再出现，`verify-patch.mjs` 会直接失败。
 
 - **根 agent**：先立计划（目标、成功判据、约束、任务清单），把值得一次往返的活派出去，自己保留集成、把关与决策——并在每次委派里**点名允许改哪些文件**。
 - **子代理**：干活。读、改被点名的文件、跑属于它的命令，然后回报结论与最小证据，外加**确切改了哪些文件**。
@@ -129,27 +133,28 @@ dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 | `cordis.patch.yml` | 预设声明（**由脚本生成，不要手改**） |
 | `persona.txt` | 人设正文，**要改就改这个** |
 | `build-patch.mjs` | 从 `persona.txt` 生成 `cordis.patch.yml` |
-| `verify-patch.mjs` | 校验补丁结构、工具白名单，并断言人设逐字节一致 |
+| `verify-patch.mjs` | 校验补丁结构、worker 预设的行清单、守卫的挂载、人设逐字节一致与 `engines.dsh` |
 | `verify-depth-override.mjs` | 校验深度覆盖是否落到合成配置 |
 | `lib-yaml.mjs` | 从本地 DSH 安装里解析 YAML，因此本包**零依赖** |
 | `docs/DEVELOPMENT.md` | 维护者文档：设计取舍、机制细节、已验证/未验证边界 |
 
 ## 已验证 / 未验证
 
-**已验证**：补丁可被 loader 解析；解析出的人设与 `persona.txt` **逐字节相同**；两个委派工具的白名单排除了所有写入入口、且只包含**运行时报告的全局工具**；干净检出后校验通过（`.gitattributes` 已钉死 LF，否则 Windows 克隆会破坏逐字节校验）；深度覆盖已落到合成配置。
+**已验证**：补丁可被 loader 解析；解析出的人设与 `persona.txt` **逐字节相同**；worker 预设挂的行与预期**逐项一致**，且不含任何根专用行；两个委派行都指向 worker 预设，且都不带已被移除的 `toolFilter`；守卫是随包发布的顶层条目；`engines.dsh` 存在且为含下界的范围；干净检出后校验通过（`.gitattributes` 已钉死 LF，否则 Windows 克隆会破坏逐字节校验）。
 
-**已在真实任务上端到端验证**——那次运行在一个大型逆向工程目录树上产生了 **24 个后代会话**。下面每一条都读自**会话日志自己持久化的工具 schema**，那是注册表的输出，不是模型的回忆：
+**已在真实任务上端到端验证**，跨两个 DSH 版本。下面每一条都读自**会话日志自己持久化的工具 schema**——注册表的输出，不是模型的回忆：
 
 | 性质 | 证据 |
 |---|---|
-| 白名单覆盖每一层 | 根被提供 **31** 个工具；深度 1 与深度 2 的 agent 都是 **25** 个。差额正好是白名单排除的那 6 个：`workflow`、`present`、`job_output`、`job_list`、`job_kill`、`exit_plan_mode`。 |
+| worker 预设覆盖每一层 | 0.2.1-rc.2 上一个 root-planner 会话派出 4 个子代理，每个被提供 **26** 个工具，而平台默认是 **39** 个；缺的 13 个正是根专用的那些行（`workflow`、`present`、`job_*`、`plugin_manager`、`schedule_*`、`cordis_inspect_*`、`exit_plan_mode`）。更早在 0.2.1 之前的掩码机制下，同样的对照测得 31 / 25——同一个想法，早一版的机制。 |
 | 子代理确实是工人 | `write`、`edit`、`ops_replace`、`pwsh` 在每一层都在，而且真的被用了：根 10 次 `write` + 60 次 `edit`，某个深度 1 的子代理 14 次 `write`，某个深度 2 的孙代理 20 次 `write`。 |
 | 子代理留不下运行中的进程 | `run_in_background` 在三个层级的 `pwsh` schema 里**都不存在**。（朴素的全日志搜索会给出相反答案——`ops_bash` 自己的描述里也有这个词，所以要用 `tools/check-pwsh-background.mjs` 看 schema 窗口。） |
 | 递归成立 | 12 个直接子代理，其中 4 个继续派出了 12 个孙代理；根自己做了 14 次 `subagent` 调用。 |
 | 深度上限有效 | 树停在深度 2；整个日志目录里不存在任何深度 3 的会话。 |
 | 在世上限是软拒绝而非致命 | 8 路扇出时出现一次 `subagent limit reached (active child limit: 8)`；子代理完结时结算通知归还了槽位，此后每次委派都成功。 |
+| 写入围栏是真的 | 子代理写 `_agents/` 之外会被拒（`write: outside your workspace.`）且**文件不会被创建**；同样的调用写进 `_agents/` 则成功。**在独立守卫包卸载后重新验过一次**——因为围栏现在只由本包提供。 |
 
-**一处事后更正**：本文件早期版本称"白名单让子代理成为叶子"。**并非如此。** `subagent` 是按每个被组合 Agent 注册、而非全局注册，所以白名单**永远无法写下它的名字**；而限制只过滤全局工具，因此子代理**保有此工具**。递归的边界是 `maxDepth`，不是白名单。
+**两处事后更正，而这正是现在这套结构存在的原因。** 早期版本称"掩码让子代理成为叶子"——并非如此，递归的边界是 `maxDepth`。随后 DSH 0.2.1 **移除了掩码机制本身**：`toolFilter` 现在会被静默剥除，所以本包把工作集搬进**第二个预设**，用 `agentPreset` 选择。中间还试过用一条 `tools.restrict()` 行顶替，失败原因又不同——限制只过滤**全局**工具，而预设自己的行注册在 agent 作用域里。
 
 **想自己核**：`tools/verify-session.mjs` 能证明每个会话跑的是哪个预设、深度多少，但它不读工具 schema。逐层工具清单用 `tools/extract-offered-tools.mjs`，进程边界用 `tools/check-pwsh-background.mjs`，实际调用用 `tools/count-tool-calls.mjs`。
 
@@ -160,7 +165,7 @@ dsh plugin --profile web add github:XiaoOu2024/dsh-root-planner-preset
 按价值排序，有用的贡献大概是这样：
 
 - **报告你遇到的故障**，带上完整报错和你使用的 DSH 版本。上面「未验证」那段正是最需要真实反馈的地方。
-- **报告工具白名单在你的环境里不匹配**：你的 profile 注册了哪些全局工具、白名单里哪个名字报错了。
+- **报告工具集在你的环境里不匹配**：子代理实际被提供了哪些工具，以及你的 profile 全局注册了哪些——后者任何预设都删不掉。
 - **改进人设**（`persona.txt`）——但请跑一次 `node build-patch.mjs && node verify-patch.mjs` 并把结果一并附上，因为 `cordis.patch.yml` 是生成文件，手工改过的会被拒。
 - **翻译或修订文档**——[README.md](README.md) 与 [INSTALL.md](INSTALL.md)。
 
