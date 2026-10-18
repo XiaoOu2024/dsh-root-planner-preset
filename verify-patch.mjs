@@ -17,6 +17,14 @@ import { loadYaml, loaderSchema as makeLoaderSchema } from './lib-yaml.mjs';
 
 const yaml = loadYaml();
 
+/**
+ * The oldest DSH this preset actually works on. 0.2.1 introduced `agentPreset` on the
+ * delegation tool and removed `toolFilter`; on 0.2.0 the preset still composes and then
+ * silently runs every child on the platform's default preset. Kept as one constant so the
+ * manifest, this check and any future packaging step cannot drift apart.
+ */
+const MINIMUM_DSH = '>=0.2.1-rc.2';
+
 const here = dirname(fileURLToPath(import.meta.url));
 const failures = [];
 const check = (ok, label) => {
@@ -147,6 +155,24 @@ check(existsSync(join(here, 'guard.js')), 'guard.js ships inside the package');
   const manifest = JSON.parse(readFileSync(join(here, 'package.json'), 'utf8'));
   check(manifest.exports?.['./guard'] === './guard.js', 'package.json exports ./guard');
   check((manifest.files ?? []).includes('guard.js'), 'guard.js is in the published files list');
+  // The preset depends on 0.2.1 *behaviour*, not merely on 0.2.1 packaging: `agentPreset`
+  // on the delegation tool is what the worker split relies on, and on 0.2.0 the removed
+  // `toolFilter` is stripped silently so children fall back to the platform's default
+  // preset. Without this floor the package installs on a runtime where it looks fine and
+  // quietly does the wrong thing — the failure mode this repo has spent the most effort
+  // removing. Verify the range admits the floor itself too, so a typo cannot turn the
+  // guard into a lockout of the very version it is written for.
+  check(
+    manifest.engines?.dsh === MINIMUM_DSH,
+    `package.json declares engines.dsh ${MINIMUM_DSH} (found ${JSON.stringify(manifest.engines?.dsh)})`,
+  );
+  // A shape check that always runs, rather than an optional semver import that silently
+  // becomes a no-op on a machine without the module. `^>=` also rules out a strict `>`,
+  // which would lock out the very runtime the range names.
+  check(
+    /^>=\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(manifest.engines.dsh ?? ''),
+    `engines.dsh is an inclusive >= lower bound on a concrete version (found ${JSON.stringify(manifest.engines?.dsh)})`,
+  );
 }
 const delegationRows = delegation?.config ?? [];
 

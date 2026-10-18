@@ -6,6 +6,8 @@ The root agent's context holds the plan and the decisions; reading, editing and 
 
 > The root decides, the workers do the work, and nothing outlives the task.
 
+**Requires DSH `0.2.1-rc.2` or newer.** The package declares it as `engines.dsh`, so the plugin manager refuses to install on an older runtime. The floor is not cosmetic: 0.2.1 introduced `agentPreset` on the delegation tool and removed `toolFilter`. On 0.2.0 this preset still composes, and then quietly runs every child on the platform's default preset — wrong persona, twice the tools — which is worse than not installing it at all.
+
 [中文说明](README.zh.md) | [Install](INSTALL.md) | [Maintainer notes](docs/DEVELOPMENT.md)
 
 ## The problem it solves

@@ -4,6 +4,9 @@
   "type": "module",
   "description": "DSH agent preset: the root agent plans and decides, subagent workers read, write and run commands inside their own _agents/ workspace, and nothing outlives its task.",
   "license": "MIT",
+  "engines": {
+    "dsh": ">=0.2.1-rc.2"
+  },
   "author": "XiaoOu2024",
   "exports": {
     ".": "./guard.js",
