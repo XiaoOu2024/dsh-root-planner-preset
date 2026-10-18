@@ -1,6 +1,6 @@
 {
   "name": "dsh-root-planner-preset",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "type": "module",
   "description": "DSH agent preset: the root agent plans and decides, subagent workers read, write and run commands inside their own _agents/ workspace, and nothing outlives its task.",
   "license": "MIT",
