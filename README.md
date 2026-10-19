@@ -158,6 +158,16 @@ Then **one required step**: set **Settings → Subagents → depth limit** to **
 
 Then **start a new session** and pick **Root Planner** in the preset selector. Full steps and troubleshooting are in [INSTALL.md](INSTALL.md).
 
+The bundle ships three presets:
+
+| Preset | Pick it by hand? | What it is |
+|---|---|---|
+| **Root Planner** | yes | The planner: full toolset, delegates reading and scoped edits, fences workers to `_agents/` |
+| **深度创造** (deep creation) | yes | The planner **plus** `tool-cordis` (runtime inspection) and the Cordis development skills, for complex plugin work. Same persona, same workers, same fence |
+| **Root Planner Worker** | no | The worker the other two spawn; it mounts fewer rows and is what makes the tree recurse |
+
+**Which one for plugin work:** use **深度创造** when the task needs `cordis_inspect_*` or the Cordis authoring skills. It deliberately does **not** re-enable background processes — the platform's own creation preset doesn't either (`tool-pwsh` disabled, `ops_bash` without a job registry), so "deep creation" here still means no process outlives its task. Workers remain confined to `_agents/`, so they research and draft while the root edits the package and runs the install.
+
 > ⚠️ **The easiest mistake to make: the root session must actually be composed with Root Planner.** In one real trial the root session was still `standard`, so the root was bound by none of this preset while the subagents it spawned *were* `root-planner` — every rule and permission in the tree was mismatched, and a batch of confident conclusions about the preset followed from it. **To check:** run `node tools/verify-session.mjs <session-dir>`, which reports the preset and depth of the root and every descendant, and fails loudly when the root is not `root-planner`.
 
 ## When it fits, and when it does not

@@ -225,9 +225,62 @@ const delegationRows = delegation?.config ?? [];
 const workerRow = inserted.find((row) => row.id === 'preset-root-planner-worker');
 check(workerRow !== undefined, 'the patch declares a worker preset');
 check(workerRow?.config?.id === 'root-planner-worker', 'the worker preset id is root-planner-worker');
-check(workerRow?.config?.order === 6, 'the worker preset order is 6');
-const workerPlugins = workerRow?.config?.plugins ?? [];
+check(workerRow?.config?.order === 6, 'the worker preset order is 6');const workerPlugins = workerRow?.config?.plugins ?? [];
 const workerRowIds = new Set(workerPlugins.map((row) => row.id));
+
+// The third preset: 深度创造 (deep creation). It reuses the planner's rows through the
+// generator's `rootRows(true)`, so the assertions are about the two things that make it
+// different, plus the guarantee that it did not drift from the planner everywhere else.
+const deepRow = inserted.find((row) => row.id === 'preset-root-planner-cordis');
+check(deepRow !== undefined, 'the patch declares the deep-creation preset');
+check(deepRow?.config?.id === 'root-planner-cordis', 'the deep-creation preset id is root-planner-cordis');
+check(deepRow?.config?.order === 7, 'the deep-creation preset order is 7 (last, so it sorts after the other two)');
+check(deepRow?.config?.name === '深度创造', 'the deep-creation preset is labelled 深度创造');
+const deepPlugins = deepRow?.config?.plugins ?? [];
+const deepRowIds = new Set(deepPlugins.map((row) => row.id));
+check(
+  deepRowIds.has('tool-cordis'),
+  'the deep-creation preset mounts tool-cordis (runtime inspection is the point of the preset)',
+);
+check(
+  deepRowIds.has('time-context'),
+  'the deep-creation preset mounts time-context, like the platform creation preset',
+);
+const deepSkills = deepPlugins.find((row) => row.id === 'skill-filesystem');
+check(
+  Array.isArray(deepSkills?.config?.customSkillDirs) && deepSkills.config.customSkillDirs.length > 0,
+  'the deep-creation preset points skill-filesystem at the Cordis development skills',
+);
+// The subagent rows live inside the `delegation` group, whose `config` IS the child list
+// (not `config.plugins`), so they never appear as top-level ids in the parsed row list.
+const deepDelegation = deepPlugins.find((row) => row.id === 'delegation');
+const deepDelegationChildren = (Array.isArray(deepDelegation?.config) ? deepDelegation.config : []).map(
+  (row) => row?.id,
+);
+const deepDelegationMissing = ['tool-subagent', 'tool-subagent-fork'].filter(
+  (id) => !deepDelegationChildren.includes(id),
+);
+check(
+  deepDelegation !== undefined && deepDelegationMissing.length === 0,
+  `the deep-creation preset keeps the delegation group with its subagent rows (missing: ${deepDelegationMissing.join(',') || 'none'})`,
+);
+check(
+  !deepRowIds.has('tool-jobs'),
+  'the deep-creation preset does not mount the dead tool-jobs row',
+);
+// Everything the planner mounts, the creation preset mounts too — one row list, not two.
+const plannerIds = new Set((presetRow?.config?.plugins ?? []).map((row) => row.id));
+const missingFromDeep = [...plannerIds].filter((id) => !deepRowIds.has(id));
+check(
+  missingFromDeep.length === 0,
+  `the deep-creation preset mounts every row the planner does (missing: ${missingFromDeep.join(',') || 'none'})`,
+);
+// And the extra surface stays confined to it: the planner must not gain inspection.
+check(
+  !plannerIds.has('tool-cordis'),
+  'the planner preset does not mount tool-cordis (inspection belongs to the creation preset)',
+);
+
 
 /** Rows a worker needs: persona, the working tools, and delegation so the tree recurses. */
 const WORKER_REQUIRED_ROWS = [
