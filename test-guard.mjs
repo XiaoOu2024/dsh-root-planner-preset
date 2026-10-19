@@ -80,6 +80,41 @@ check('pwsh with workdir inside', { name: 'pwsh', arguments: { command: 'echo x 
 check('pwsh with workdir outside', { name: 'pwsh', arguments: { command: 'ls', workdir: cwd } }, false)
 check('pwsh relative workdir inside', { name: 'pwsh', arguments: { command: 'ls', workdir: join('_agents', 'a') } }, true)
 
+// The `..` scan is platform-neutral: the guard refuses the segment before it resolves
+// anything, so these hold everywhere. They exist because the first shipped version had no
+// such check and a workdir inside the workspace plus `Set-Content -Path ..\..\x.txt` wrote
+// into the parent directory — measured on DSH 0.2.1-rc.2, the file really was created.
+check(
+  'pwsh backslash dotdot write outside',
+  { name: 'pwsh', arguments: { command: 'Set-Content -Path ..\\..\\outside.txt -Value x', workdir: join(workspace, 'a') } },
+  false,
+)
+check(
+  'pwsh forward-slash dotdot write outside',
+  { name: 'pwsh', arguments: { command: 'cp x ../../outside.txt', workdir: join(workspace, 'a') } },
+  false,
+)
+check(
+  'pwsh dotdot after a flag',
+  { name: 'pwsh', arguments: { command: 'Out-File -FilePath ../escape.txt', workdir: join(workspace, 'a') } },
+  false,
+)
+check(
+  'pwsh dotdot inside a path that stays inside',
+  { name: 'pwsh', arguments: { command: 'Get-Content ./a/../inside.txt', workdir: join(workspace, 'a') } },
+  false,
+)
+check(
+  'pwsh dotdot quoted',
+  { name: 'pwsh', arguments: { command: 'Set-Content -Path "..\\..\\outside.txt" -Value x', workdir: join(workspace, 'a') } },
+  false,
+)
+check(
+  'pwsh command with no dotdot still allowed',
+  { name: 'pwsh', arguments: { command: 'Get-ChildItem -Recurse | Measure-Object', workdir: join(workspace, 'a') } },
+  true,
+)
+
 // The command scan matches drive-letter paths, so these only hold on Windows. On POSIX
 // an absolute path inside a command is not detected at all — a documented limitation.
 check(

@@ -113,10 +113,25 @@ function makeGuard(cwd, workspace) {
           `so everything you create stays in your workspace.`
         )
       }
-      // Best effort: refuse an absolute path in the command that points at the
-      // parent's files. A path assembled at runtime defeats this; the parent's
-      // timestamp check is the backstop.
+      // Best effort, two scans. The first refuses an absolute path in the command that
+      // points at the parent's files. The second refuses a relative path that climbs out
+      // with `..` — the hole this guard shipped with: a workdir inside the workspace plus
+      // `Set-Content -Path ..\..\x.txt` writes to the parent directory, because
+      // `..\..\x.txt` is not an absolute path and the first scan never saw it. Measured
+      // (not assumed) on DSH 0.2.1-rc.2: the file landed in the workspace root.
+      //
+      // Any `..` segment is refused outright rather than resolved. Resolving would need a
+      // shell parser to know which token is a path, and a cleverly split token defeats it
+      // anyway; refusing the segment is a rule an agent can follow ("use absolute paths
+      // inside your workspace") and cannot be spelled around. A path assembled at runtime
+      // still gets past, which is why the parent's timestamp check stays the backstop.
       const command = typeof args?.command === 'string' ? args.command : ''
+      if (/(^|[\s"'`=;|&(\\/])\.\.([\\/]|$)/.test(command) || /\.\.[\\/]/.test(command)) {
+        return (
+          `${name}: the command contains a ".." path segment, which can climb out of your workspace. ` +
+          `Use absolute paths inside ${JSON.stringify(workspace)} instead of relative traversal.`
+        )
+      }
       const escaped = [...command.matchAll(/[A-Za-z]:[\\/][^\s"'`;|&)]*/g)].map((match) => match[0])
       const outside = escaped.find((candidate) => {
         const abs = resolve(candidate)
