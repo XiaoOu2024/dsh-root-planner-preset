@@ -25,18 +25,18 @@ Paths below are relative to the repository root; this file lives in `docs/`.
 | `build-patch.mjs` | Generates `cordis.patch.yml` from `persona.txt`. |
 | `cordis.patch.yml` | Generated. Do not hand-edit — regenerate instead. |
 | `lib-yaml.mjs` | Resolves a YAML parser from the local DSH installation, so the scripts need no dependencies. |
-| `verify-patch.mjs` | Parses the generated patch and checks persona integrity, role wiring, and the child mask. |
-| `child-tools.mjs` | The child mask, defined once so the generator and the verifier cannot disagree. |
+| `verify-patch.mjs` | Parses the generated patch and checks persona integrity, the three rule sections, the worker preset row list, the delegation rows, the guard wiring and `engines.dsh`. |
+| `child-tools.mjs` | The worker toolset this bundle intends, plus the scope-local names it must not try to restrict. Documentation and single source of intent, no longer a runtime mask. |
 | `release.mjs` | One-command release: regenerate, verify, bump, commit, push, publish to the **official** registry, confirm the version is live, upgrade the local profile. `--dry-run` changes nothing. Run it from a terminal, not from inside the DSH sandbox, whose piped-stdio boundary makes its `spawn` calls fail with `EPERM` on Windows. |
 | `tools/verify-session.mjs` | Reads a real run's `.jsonl.zstd` logs (frame by frame — one decompress call returns 323 bytes of a 140 KB log) and checks that the **root** and every descendant composed with root-planner, at the expected depth. |
-| `tools/extract-tool-inventory.mjs` | Pulls the runtime's own `known global tools:` line out of a log. That line, not memory, is what the child mask must be a subset of. |
+| `tools/extract-tool-inventory.mjs` | Pulls the runtime's own `known global tools:` line out of a log. Useful after a DSH upgrade to see which tools no preset can remove. |
 | `verify-depth-override.mjs` | Checks that the profile patch layer still parses and that the `subagent` depth override landed in the composed profile. |
 | `package.json` | Bundle manifest (`dsh.bundle.patch`). |
 | `.gitattributes` | Pins LF; without it a Windows checkout breaks the byte-identity check. |
 | `README.md` / `README.zh.md` | The English and Chinese front pages, cross-linked. npm renders the repository root `README.md`, which is why the English one holds that name. |
 | `INSTALL.md` | Recipient-facing setup steps and troubleshooting (Chinese). |
 | `.github/CONTRIBUTING.md` | The contributor workflow: regenerate, verify, and the rules a change must not break. |
-| `.github/workflows/verify.yml` | CI: fails when `cordis.patch.yml` drifts from `persona.txt`, and runs the mask check. |
+| `.github/workflows/verify.yml` | CI: fails when `cordis.patch.yml` drifts from `persona.txt`, then runs the patch and guard checks. |
 
 ```sh
 node build-patch.mjs             # after every persona.txt edit
@@ -92,14 +92,13 @@ release. Never publish a real version below it.
    the shipped `standard` preset's rows. A DSH that renamed or dropped one of those
    rows makes this preset fail activation with a row diagnostic; the roster keeps
    the row and no session can compose from it until the patch is fixed.
-2. **The same global tool names.** The child mask is an allow list, and
-   `tools.restrict()` *throws* on an unknown global name when a child is created.
-   At minimum the profile must register: `read`, `glob`, `grep`, `read_image`,
-   `skill`, `todo_write`, `ask_user_question`, `get_goal`, `create_goal`,
-   `update_goal`, `list_agents`, `send_message`, `interrupt_agent`, `subagent`,
-   `subagent_fork`, plus `web_search`/`web_fetch` and the three `ops_*` readers if
-   they publish them. A profile missing any of these needs its mask edited —
-   `verify-patch.mjs` cross-checks the names against a list near the bottom.
+2. **A delegation tool that supports `agentPreset`.** DSH 0.2.1 replaced the old
+   `toolFilter` mask with preset selection: the curated child toolset is the
+   `root-planner-worker` preset's row list, and both delegation rows name it. On an older
+   runtime `toolFilter` is stripped silently and children fall back to the platform's
+   default preset — which is why `package.json` declares `engines.dsh >= 0.2.1-rc.2`.
+   Tools registered **globally** by the Host (`ops_*`, `working_directory`) cannot be
+   removed by any preset; workers will always see those.
 3. **The depth setting.** `maxDepth` is a Host setting, *not* part of this bundle.
    Set **Settings → Subagents → depth limit** to `2` (0 disables all delegation and
    breaks the design). `verify-depth-override.mjs` validates that override on the
@@ -109,49 +108,57 @@ release. Never publish a real version below it.
 There is no `.gitignore` and no build output: the whole bundle is the six text
 files listed above.
 
-## How one persona serves both roles
+## How one persona serves both sides
 
-A subagent joins its parent's preset (`applyChildComposition` →
-`composeFrom`), so it receives **this same persona text**. There is no separate
-subagent prompt, and a preset `persona` row cannot be made child-specific.
+A delegation row names `agentPreset: root-planner-worker`, so a child is composed from the
+**worker preset**, not from its parent's. Both presets mount the **same `persona.txt`**,
+which is why one body has to serve every node: there is no per-role prompt, and a preset
+`persona` row cannot be made child-specific.
 
-Two facts make one body sufficient:
+Three facts shape how the text is written:
 
-- DSH inserts a fixed runtime-context statement into every subagent's prompt:
-  *"You are a delegated subagent: your permission scope was fixed when you were
-  started…"*. It appears in the runtime-context snapshot, before the persona
-  section, and it is impossible to remove.
-- Therefore role is a **decision the text can instruct**, not a variable it can
-  substitute. The only prompt variables a preset persona may use are `{{cwd}}`,
-  `{{model}}`, and `{{provider}}` — there is no `{{role}}` or `{{parent_agent_id}}`.
+- DSH inserts a fixed runtime-context statement into every subagent's prompt: *"You are a
+  delegated subagent: your permission scope was fixed when you were started…"*. It is
+  authoritative and cannot be removed.
+- DSH also injects `Your parent agent id is "<id>". Before you finish, send your result to
+  that agent with send_message(…)` as a message after the task. That is the only upward
+  address a child is given, and it cannot be derived from the persona.
+- Role is therefore a **decision the text can instruct**, not a variable it can substitute.
+  On 0.2.1 the only prompt variables a preset persona may use are `{{provider}}` and
+  `{{model}}`; `{{cwd}}` was removed and now fails the whole run with *unknown prompt
+  variable*. There is no `{{role}}` and no `{{parent_agent_id}}`.
 
-So "Which role you are in" reads its own prompt for that fixed statement. No
-extra plugin, no duplicated preset, no drift between the parent's copy and the
-child's.
+So "Which role you are in" reads its own prompt for that fixed statement, and the rules are
+filed **by side rather than by agent**: a depth-1 agent is the delegated side of the edge
+above it and the delegating side of the edges below it, and it needs both halves at once.
+Filing them by role instead is what made a mid-level agent read only the worker half and
+treat itself as a leaf.
 
 ## What is enforced, and where
 
 | Requirement | Mechanism | Strength |
 |---|---|---|
-| Subagents cannot create, modify, or delete files | `toolFilter.allow` on both delegation tools | **Structural**: absent tools cannot be called. `write`, `edit`, `ops_replace` are not in the mask. |
-| Subagents have no shell | Same mask | **Structural**: `ops_bash` and `pwsh` are absent. |
-| Root owns all mutations | Persona rule 6 + the mask applies only to children | **Prompt-level** for the root; structural for children. |
-| Root delegates reading | Persona rules 2–4 | **Prompt-level** only. The root keeps `read`/`glob`/`grep` deliberately, so it can verify a claim when a summary is thin. |
-| No runaway task passing | Runtime depth limit (`subagent.maxDepth`, set to `2` — see Constraints) | **Structural**: `resolveChildDepth` = parent depth + 1 and throws `SubagentDepthError` past the cap. With `2` the tree is root(0) → subagent(1) → grandchild(2), and the depth-2 agents cannot delegate further. |
-| Intermediate agents do not re-delegate reflexively | Persona rule 7 + "When to pass work down" | Prompt-level, and load-bearing at `maxDepth: 2`: depth-1 agents *can* delegate, so the three-question test is what keeps a wide fan-out from becoming a deep chain. |
-| Subagents report needed changes upward | Persona subagent rule 2 + root rule 8 | Prompt-level; a child cannot act on it anyway. |
+| Subagents can read, edit files and run commands | The `root-planner-worker` preset mounts `tool-fs`, `tool-pwsh`, `tool-web`, `tool-skill`, `tool-todo` and the delegation rows; both delegation tools set `agentPreset: root-planner-worker` | **Structural**: a worker gets a tool only if a row provides it |
+| Subagents cannot leave a process running | `enableRunInBackground: false` on `tool-pwsh` in **both** presets — the call is refused *and* `run_in_background` disappears from the schema | **Structural** |
+| A subagent cannot write outside the tree's `_agents/` | `guard.js`, a profile-level tool guard keyed on the calling session's `origin` | **Structural for file tools** (the call is refused, the file is not created); **best-effort for shell** — an absolute path in the command is refused, a path built at runtime is not |
+| A subagent reports a change instead of making it | Delegated-side rules (write only in your workspace; change outside it is a request) | Prompt-level |
+| The delegating side owns mutation decisions | Delegator rules (state which files may change; answer change requests) | Prompt-level |
+| The delegating side delegates reading | Delegator rules (delegate research; read directly only when cheap) | Prompt-level — the delegating agent keeps `read`/`glob`/`grep` so it can verify a thin summary |
+| No runaway depth | Runtime depth limit (`subagent.maxDepth`, set to `2` — see Constraints) | **Structural**: `resolveChildDepth` = parent depth + 1 and throws `SubagentDepthError` past the cap |
+| Depth-1 agents may delegate as well | The worker preset contains the same delegation rows, so the tree recurses to the cap | **Structural** (the capability) + prompt-level (the budget that decides whether to use it) |
 
-The mask is an **allow** list, not a deny list: a tool added by a future plugin is
-invisible to subagents until it is added here. `tools.restrict()` also rejects
-unknown names when a child is created, so every name in the mask must be a tool
-this profile actually registers — that is why `verify-patch.mjs` cross-checks the
-mask against the profile's live tool inventory.
+The persona files its rules **by side, not by agent**: "Rules for every agent", "When you
+delegate", "When you are delegated to". That is what lets a depth-1 agent apply the
+delegating half to its own children while still following the delegated half toward its
+parent. A curated child toolset cannot be expressed as a mask any more — DSH 0.2.1 removed
+`toolFilter` and strips it silently — so the curated set is the worker preset's row list,
+and `verify-patch.mjs` asserts that list in both directions.
 
 ## Constraints
 
-- **Do not move or delete this directory.** The profile installs it as a link:
-  `"@local/dsh-root-planner-preset": "link:C:/Users/Admin/Documents/deepseek-harness/default-workspace/root-planner-preset"`.
-  Moving it breaks the install.
+- **Do not move or delete this directory.** The profile installs it from npm
+  (`dsh-root-planner-preset`), not as a link; the bundle is resolved from the profile's
+  `node_modules`.
 - **Depth is `2`, set as a Host override.** `maxDepth` is deliberately left unset
   on both delegation tool rows so it resolves from
   **Settings → Subagents → depth limit** (`subagent.maxDepth`). The tool rows
@@ -173,68 +180,43 @@ mask against the profile's live tool inventory.
   working and stays consistent with this file. With `2` the tree is
   root(0) → subagent(1) → grandchild(2); depth-2 agents are leaves. Setting it to
   `0` disables all delegation and breaks the design.
-- Changing `persona.txt` or the mask requires either toggling `preset-root-planner`
-  off and on in the plugin list, or simply opening a **new session**: an existing
-  session and its children keep the plugin revision they started with.
+- Changing `persona.txt` or the preset's rows requires either toggling
+  `preset-root-planner` off and on in the plugin list, or simply opening a **new
+  session**: an existing session and its children keep the plugin revision they started
+  with. Editing the installed copy is not enough — publish and reinstall, or the running
+  Harness keeps the old module generation until it restarts.
 - The preset mirrors the `standard` preset's tool rows. A DSH upgrade that adds
   tools to `standard` does not add them here.
 
 ## Verified
 
-- `verify-patch.mjs`: patch parses as loader YAML (`!!js` tags treated as opaque),
-  preset id/order correct, **parsed persona byte-identical to `persona.txt`**, no
-  tabs, both delegation rows publish `subagent`/`subagent_fork`, both masks
-  exclude every mutation entry point and include only live tools — all checks pass.
-- Bundle installed with `application: applied`; `preset-root-planner` is live and
-  its `config.plugins` validates against the shipped Config schema.
-- `verify-depth-override.mjs`: the profile patch layer still parses, the `subagent`
-  override is well-formed, and the **composed** profile
-  (`~/.dsh/profiles/web/cordis.yml`) resolves `subagent.maxDepth` to `2`. That
-  composed file was rewritten seconds after the patch edit, so the running profile
-  re-composed rather than waiting for a restart — and `resolveMaxDepth` reads the
-  live config at delegation time, so the new depth applies to the next delegation.
+- `verify-patch.mjs`: the patch parses as loader YAML (`!!js` tags treated as opaque);
+  preset ids and orders are correct; the **parsed persona is byte-identical to
+  `persona.txt`**; the three rule sections carry the expected counts with contiguous
+  numbering; the worker preset mounts the required rows and none of the root-only ones;
+  both delegation rows name the worker preset and carry no `toolFilter`; the guard is a
+  top-level entry shipped inside the package; `engines.dsh` is an inclusive floor; no tabs.
+- The bundle installs with `application: applied` and composes.
+- `verify-depth-override.mjs`: the profile patch layer parses, the `subagent` override is
+  well-formed, and the composed profile resolves `subagent.maxDepth` to `2`. When
+  `cordis.yml` still holds the empty template it reports **SKIP** rather than failing —
+  that file is a runtime cache the harness rewrites at startup.
+- `test-guard.mjs`: 21 boundary assertions over the write fence.
+- **End to end on a live session (DSH 0.2.1-rc.2).** A root-planner session spawned four
+  children; each was offered **26** tools against the platform default's **39**; each
+  carried this preset's persona; a child's write outside `_agents/` was refused
+  (`write: outside your workspace.`) and the file was **not** created, while the same
+  call inside `_agents/` succeeded. Re-checked after the standalone guard bundle was
+  uninstalled, because the fence now ships only in this package.
 
 ## Not verified
 
-- **No subagent has actually been spawned under this preset, at any depth.** Verifying
-  the mask and the depth cap at runtime needs a session running `root-planner`, and
-  the agent that authored this bundle ran under the `cordis` preset. To confirm it
-  yourself: start a new session with the **Root Planner** preset, delegate one
-  research task, and check
-  - that the child's tool list contains no `write`, `edit`, `ops_replace`, or shell
-    tool, and
-  - that the child *can* delegate one more level, while its own child cannot.
-
-  A mask name that is not a registered global tool would fail child creation with
-  `tools.restrict() names unknown global tool …`; the allow list was built by
-  cross-checking the profile's live tool inventory, so this is not expected.
-
-## Where conventions live (and why they are not in the persona)
-
-Machine and project conventions deliberately do **not** live in this bundle. The
-persona is identity; a convention file is a maintained document. The user's
-operations convention is actively appended to (new tool paths get written back into
-it), so folding it into the persona would mean a `persona.txt` edit, a regeneration,
-a bundle reinstall, a **restart**, and a **new session** for every added tool path.
-
-DSH has a native layer for this, active in every preset via
-`@deepseek-ai/dsh-agent-instructions` (`maxBytes: 65536`), which loads the
-instruction chain per request without a restart:
-
-| Content | Location |
-|---|---|
-| Machine-wide: pwsh7 enforcement, absolute tool paths, python dependency pre-check, time format | `~/.dsh/AGENTS.md` |
-| Project rules: git commit granularity, `A_文件导航.md` register, output layout | that project's root `AGENTS.md` (on demand, only where rules exist) |
-| Private values: hosts, ports, credentials | project root `AGENTS.local.md` + `.gitignore` |
-
-Discovery is anchored on `.git`: `findProjectRoot` walks upward from the session cwd
-to the first directory holding the marker, then the chain runs root → cwd. **With no
-marker anywhere on the chain the root degrades to cwd itself**, so a file in a parent
-directory is not read. `CLAUDE.md` is loaded with the same candidates, and identical
-sibling files render once.
-
-The persona carries one precedence clause instead of the conventions themselves:
-project files apply, but the subagent's task bound wins where they conflict —
-a worker changes the files its task names and nothing else, and that is enforced by
-the runtime's tool grant plus the persona, neither of which a project file can
-override.
+- **Recursion under the current two-preset layout.** Depth 2 was observed before the
+  0.2.1 migration, under the old mask mechanism. Since then only depth 1 has run, so
+  "the worker preset's children also compose the worker preset" is asserted by the patch
+  and by `verify-patch.mjs`, but has not been seen in a live tree. To confirm: start a
+  Root Planner session, delegate something large enough that a child splits it, then check
+  the grandchild's `request/header` with `tools/extract-offered-tools.mjs`.
+- **The nested-workspace protocol.** Child-creates-its-own-directory needs depth 2 to be
+  exercised end to end, including the "parent skipped `_agents/`" defect path.
+- **Platforms other than Windows**, and any DSH newer than 0.2.1-rc.2.

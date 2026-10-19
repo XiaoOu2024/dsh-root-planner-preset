@@ -102,28 +102,62 @@ check(
  * Update these numbers in the same commit as the rule they count, so the release is
  * the act that carries it.
  */
-const ROOT_RULE_COUNT = 18;
-const SUBAGENT_RULE_COUNT = 13;
-const rootSection = (personaRow?.config?.prefix ?? '').split('## Root agent rules')[1]?.split('## Subagent rules')[0] ?? '';
-const rootRules = [...rootSection.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
-check(
-  rootRules.length === ROOT_RULE_COUNT,
-  `persona carries ${ROOT_RULE_COUNT} root rules (found ${rootRules.length})`,
-);
-check(
-  rootRules.every((value, index) => value === index + 1),
-  `root rule numbering is 1..${rootRules.length} with no gaps or repeats (found ${rootRules.join(',')})`,
-);
+const EVERY_AGENT_RULES = 3;
+const DELEGATOR_RULES = 15;
+const DELEGATED_RULES = 15;
 
-const subagentSection = (personaRow?.config?.prefix ?? '').split('## Subagent rules')[1]?.split('## When to pass work down')[0] ?? '';
-const subagentRules = [...subagentSection.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
+/** Read one section of the persona by its heading, up to the next level-2 heading. */
+function section(heading) {
+  const persona = personaRow?.config?.prefix ?? '';
+  const start = persona.indexOf(`## ${heading}`);
+  if (start < 0) return '';
+  const rest = persona.slice(start + heading.length + 3);
+  const end = rest.search(/^## /m);
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
+/** Rule numbers in one section, in document order. */
+function ruleNumbers(text) {
+  return [...text.matchAll(/^(\d+)\. /gm)].map((match) => Number(match[1]));
+}
+
+for (const [heading, expected] of [
+  ['Rules for every agent', EVERY_AGENT_RULES],
+  ['When you delegate', DELEGATOR_RULES],
+  ['When you are delegated to', DELEGATED_RULES],
+]) {
+  const text = section(heading);
+  const numbers = ruleNumbers(text);
+  check(numbers.length === expected, `section "${heading}" carries ${expected} rules (found ${numbers.length})`);
+  check(
+    numbers.every((value, index) => value === index + 1),
+    `section "${heading}" numbering is 1..${numbers.length} with no gaps or repeats (found ${numbers.join(',')})`,
+  );
+}
+
+// The role model is two-sided on purpose: every agent is the delegated side of the edge
+// above it and the delegating side of the edges below it. If a future edit drops the
+// sentence that ties the two blocks together, a mid-level agent goes back to reading only
+// the subagent half — the gap this restructure exists to close.
 check(
-  subagentRules.length === SUBAGENT_RULE_COUNT,
-  `persona carries ${SUBAGENT_RULE_COUNT} subagent rules (found ${subagentRules.length})`,
+  /You hold two sides at once/.test(personaRow?.config?.prefix ?? ''),
+  'the role section states that one agent holds both sides along different edges',
 );
 check(
-  subagentRules.every((value, index) => value === index + 1),
-  `subagent rule numbering is 1..${subagentRules.length} with no gaps or repeats (found ${subagentRules.join(',')})`,
+  !/A delegated task is not delegated again/.test(personaRow?.config?.prefix ?? ''),
+  'the old single-hop sentence is gone (it contradicted the depth cap and told workers not to delegate)',
+);
+check(
+  /If `_agents\/` is missing from your parent's workspace, that is a defect/.test(personaRow?.config?.prefix ?? ''),
+  'a missing parent _agents directory is reported as a defect instead of silently created',
+);
+check(
+  /and the child creates it/.test(personaRow?.config?.prefix ?? ''),
+  'the delegating side names the workspace but does not create it for the child',
+);
+check(
+  /Use absolute paths for everything you write/.test(personaRow?.config?.prefix ?? ''),
+  'the delegated side is told to use absolute paths (a relative path resolves to the session cwd, not its workspace)',
 );
 
 const delegation = plugins.find((row) => row.id === 'delegation');
