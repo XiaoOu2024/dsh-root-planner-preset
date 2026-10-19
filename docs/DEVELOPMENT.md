@@ -208,15 +208,25 @@ and `verify-patch.mjs` asserts that list in both directions.
   (`write: outside your workspace.`) and the file was **not** created, while the same
   call inside `_agents/` succeeded. Re-checked after the standalone guard bundle was
   uninstalled, because the fence now ships only in this package.
+- **Recursion under the two-preset layout, and the nested workspace protocol** — measured
+  on a three-level tree (`session-cf2b2c67` → `9136c2a6` → `5e38b6b5`, on DSH 0.2.1-rc.2):
+  - depth 2 exists, and the depth-2 agent is composed from the **worker** preset like its
+    parent: 26 tools at both depths, no root-only tool at either.
+  - the **restructured persona reached every level** (`Rules for every agent` present in
+    root, child and grandchild), so the by-side filing survives composition.
+  - the root created `_agents/` itself (a `write` of `_agents/.keep`), then named the
+    child's workspace in the task.
+  - the child **created its own** `_agents/probe/`, then created
+    `_agents/probe/_agents/leaf/` for its own child, which created nothing above its own
+    directory — the layout on disk is `_agents/probe/_agents/leaf/`.
+  - the grandchild reported upward with `send_message` to its *own* parent (the runtime's
+    parent-id injection), and the child sent the root a checkpoint and a final report.
+  - four out-of-tree writes from the child were refused, and the target file does not
+    exist on disk.
 
 ## Not verified
 
-- **Recursion under the current two-preset layout.** Depth 2 was observed before the
-  0.2.1 migration, under the old mask mechanism. Since then only depth 1 has run, so
-  "the worker preset's children also compose the worker preset" is asserted by the patch
-  and by `verify-patch.mjs`, but has not been seen in a live tree. To confirm: start a
-  Root Planner session, delegate something large enough that a child splits it, then check
-  the grandchild's `request/header` with `tools/extract-offered-tools.mjs`.
-- **The nested-workspace protocol.** Child-creates-its-own-directory needs depth 2 to be
-  exercised end to end, including the "parent skipped `_agents/`" defect path.
+- **The "parent skipped `_agents/`" defect path.** The rule exists and
+  `verify-patch.mjs` asserts its wording, but no run has yet hit a child whose parent
+  forgot to create the directory — the observed run had the parent create it first.
 - **Platforms other than Windows**, and any DSH newer than 0.2.1-rc.2.
